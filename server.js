@@ -37,17 +37,41 @@ app.get('/api/subscriptions/user/:username', async (req, res) => {
       [username]
     );
 
-    // Calculate remaining days for each subscription
-    const subscriptionsWithDetails = subscriptions.map(sub => {
+    // Check and update expired subscriptions
+    const now = new Date();
+    for (const sub of subscriptions) {
       const createdAt = new Date(sub.created_at);
-      const now = new Date();
-      
       const durationMatch = sub.duration.match(/(\d+)\s*days?/i);
       const totalDays = durationMatch ? parseInt(durationMatch[1]) : 0;
-      
       const endDate = new Date(createdAt);
       endDate.setDate(createdAt.getDate() + totalDays);
-      
+
+      const remainingDays = Math.max(0, Math.ceil((endDate - now) / (1000 * 60 * 60 * 24)));
+      const isExpired = remainingDays === 0;
+
+      if (isExpired && sub.status === 'active') {
+        // Update status to expired in DB
+        await db.execute(
+          'UPDATE subscriptions SET status = "expired", updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [sub.id]
+        );
+        sub.status = 'expired';
+      }
+    }
+
+    // Re-fetch updated subscriptions after status update
+    const [updatedSubscriptions] = await db.execute(
+      'SELECT id, username, subscription_type, duration, amount, address, building_name, flat_number, status, paused_at, resumed_at, total_paused_days, created_at, updated_at FROM subscriptions WHERE username = ? ORDER BY created_at DESC',
+      [username]
+    );
+
+    // Calculate remaining days for each subscription
+    const subscriptionsWithDetails = updatedSubscriptions.map(sub => {
+      const createdAt = new Date(sub.created_at);
+      const durationMatch = sub.duration.match(/(\d+)\s*days?/i);
+      const totalDays = durationMatch ? parseInt(durationMatch[1]) : 0;
+      const endDate = new Date(createdAt);
+      endDate.setDate(createdAt.getDate() + totalDays);
       const remainingDays = Math.max(0, Math.ceil((endDate - now) / (1000 * 60 * 60 * 24)));
       const isExpired = remainingDays === 0;
 
@@ -67,7 +91,311 @@ app.get('/api/subscriptions/user/:username', async (req, res) => {
   }
 });
 
-// Pause subscription
+// ===== EXISTING ENDPOINTS =====
+
+// Get subscription remaining days
+app.get('/api/subscriptions/remaining/:username', async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    // Include both active and inactive subscriptions for pause/resume functionality
+    const [subscriptions] = await db.execute(
+      'SELECT id, subscription_type, duration, amount, status, created_at FROM subscriptions WHERE username = ? AND status IN ("active", "inactive") ORDER BY created_at DESC',
+      [username]
+    );
+
+    if (subscriptions.length === 0) {
+      return res.json({ 
+        hasActiveSubscription: false,
+        remainingDays: 0,
+        message: 'No active subscription found'
+      });
+    }
+
+    const subscription = subscriptions[0];
+    
+    // Calculate remaining days
+    const createdAt = new Date(subscription.created_at);
+    const now = new Date();
+    
+    // Parse duration (e.g., "6 days", "15 days")
+    const durationMatch = subscription.duration.match(/(\d+)\s*days?/i);
+    if (!durationMatch) {
+      return res.status(400).json({ error: 'Invalid duration format' });
+    }
+    
+    const totalDays = parseInt(durationMatch[1]);
+    const endDate = new Date(createdAt);
+    endDate.setDate(createdAt.getDate() + totalDays);
+    
+    const remainingDays = Math.max(0, Math.ceil((endDate - now) / (1000 * 60 * 60 * 24)));
+    const isExpired = remainingDays === 0;
+
+    res.json({
+      hasActiveSubscription: true,
+      subscription: {
+        id: subscription.id,
+        subscription_type: subscription.subscription_type,
+        duration: subscription.duration,
+        amount: subscription.amount,
+        created_at: subscription.created_at,
+        end_date: endDate.toISOString().split('T')[0],
+        remaining_days: remainingDays,
+        is_expired: isExpired,
+        status: isExpired ? 'expired' : subscription.status
+      }
+    });
+
+  } catch (error) {
+    console.error('Error calculating remaining days:', error);
+    res.status(500).json({ error: 'Failed to calculate remaining days' });
+  }
+});
+
+// Check subscription status
+app.get('/api/subscriptions/check/:username', async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    const [activeSubscriptions] = await db.execute(
+      'SELECT id, subscription_type, duration, amount, status, created_at FROM subscriptions WHERE username = ? AND status = "active"',
+      [username]
+    );
+
+    if (activeSubscriptions.length === 0) {
+      return res.json({ 
+        hasActiveSubscription: false,
+        activeSubscriptions: []
+      });
+    }
+
+    // Calculate remaining days for each subscription
+    const subscriptionsWithRemaining = activeSubscriptions.map(sub => {
+      const createdAt = new Date(sub.created_at);
+      const now = new Date();
+      
+      const durationMatch = sub.duration.match(/(\d+)\s*days?/i);
+      const totalDays = durationMatch ? parseInt(durationMatch[1]) : 0;
+      
+      const endDate = new Date(createdAt);
+      endDate.setDate(createdAt.getDate() + totalDays);
+      
+      const remainingDays = Math.max(0, Math.ceil((endDate - now) / (1000 * 60 * 60 * 24)));
+      
+      return {
+        ...sub,
+        end_date: endDate.toISOString().split('T')[0],
+        remaining_days: remainingDays,
+        is_expired: remainingDays === 0
+      };
+    });
+
+    res.json({ 
+      hasActiveSubscription: true,
+      activeSubscriptions: subscriptionsWithRemaining
+    });
+  } catch (error) {
+    console.error('Error checking subscription status:', error);
+    res.status(500).json({ error: 'Failed to check subscription status' });
+  }
+});
+
+// Create new subscription
+app.post('/api/subscriptions', async (req, res) => {
+  try {
+    const {
+      username,
+      subscription_type,
+      duration,
+      amount,
+      address,
+      building_name,
+      flat_number,
+      payment_id,
+      latitude,
+      longitude
+    } = req.body;
+
+    // Enhanced validation for all required fields
+    if (!username || !subscription_type || !duration || !amount || !address || !building_name || !flat_number || !payment_id) {
+      return res.status(400).json({ 
+        error: 'All fields are required',
+        missingFields: {
+          username: !username,
+          subscription_type: !subscription_type,
+          duration: !duration,
+          amount: !amount,
+          address: !address,
+          building_name: !building_name,
+          flat_number: !flat_number,
+          payment_id: !payment_id
+        }
+      });
+    }
+
+    // Validate payment_id format
+    if (!payment_id.startsWith('pay_')) {
+      return res.status(400).json({ error: 'Invalid payment ID format' });
+    }
+
+    // Validate amount is a positive number
+    const numericAmount = parseFloat(amount);
+    if (isNaN(numericAmount) || numericAmount <= 0) {
+      return res.status(400).json({ error: 'Amount must be a positive number' });
+    }
+
+    // Validate latitude and longitude
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({ error: 'Invalid location coordinates' });
+    }
+
+    // Validate and sanitize address fields using address-utils
+    if (!validateAddress(address) || !validateBuildingName(building_name) || !validateFlatNumber(flat_number)) {
+      return res.status(400).json({ error: 'Invalid address, building name, or flat number format' });
+    }
+    const sanitizedAddress = sanitizeAddress(address);
+    const sanitizedBuildingName = sanitizeBuildingName(building_name);
+    const sanitizedFlatNumber = sanitizeFlatNumber(flat_number);
+
+    // Verify Razorpay payment
+    try {
+      await verifyPayment(payment_id, Math.round(numericAmount * 100));
+    } catch (paymentError) {
+      console.error('Payment verification failed:', paymentError.message);
+      return res.status(400).json({ 
+        error: 'Payment verification failed',
+        details: paymentError.message
+      });
+    }
+
+    // Allow multiple subscriptions - check for overlapping active subscriptions
+    const [existingSubscriptions] = await db.execute(
+      'SELECT id, subscription_type, duration, status, created_at FROM subscriptions WHERE username = ? AND status IN ("active", "inactive") ORDER BY created_at DESC',
+      [username]
+    );
+
+    // Check for overlapping subscriptions of the same type
+    const sameTypeActive = existingSubscriptions.filter(sub => 
+      sub.subscription_type === subscription_type && sub.status === 'active'
+    );
+
+    if (sameTypeActive.length > 0) {
+      return res.status(409).json({ 
+        error: `You already have an active ${subscription_type} subscription. Please manage your existing subscription or wait for it to expire.`,
+        existingSubscription: sameTypeActive[0]
+      });
+    }
+
+    const [result] = await db.execute(
+      'INSERT INTO subscriptions (username, subscription_type, duration, amount, address, building_name, flat_number, payment_id, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [username, subscription_type, duration, numericAmount, sanitizedAddress, sanitizedBuildingName, sanitizedFlatNumber, payment_id, lat, lng]
+    );
+
+    res.json({
+      success: true,
+      message: 'Subscription created successfully',
+      subscription_id: result.insertId
+    });
+
+  } catch (error) {
+    console.error('Error creating subscription:', error);
+    res.status(500).json({ 
+      error: 'Failed to create subscription',
+      details: error.message
+    });
+  }
+});
+
+// ===== ADMIN AUTHENTICATION MIDDLEWARE =====
+const authenticateAdmin = async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    // Enhanced token validation
+    const username = req.headers['x-username'] || req.headers['X-Username'];
+    if (!username) {
+      return res.status(401).json({ error: 'Username required' });
+    }
+
+    // Check if user exists and has admin role
+    const [users] = await db.execute(
+      'SELECT id, username, email, role FROM users WHERE username = ? AND role = "admin"',
+      [username]
+    );
+
+    if (users.length === 0) {
+      console.error(`Admin access denied for username: ${username}`);
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Verify token format (simplified for demo)
+    if (!token.startsWith('admin-token-')) {
+      console.error(`Invalid token format for username: ${username}`);
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    req.user = users[0];
+    next();
+  } catch (error) {
+    console.error('Admin authentication error:', error);
+    res.status(500).json({ error: 'Authentication failed', details: error.message });
+  }
+};
+
+// ===== ADMIN PAGE PROTECTION MIDDLEWARE =====
+const protectAdminPages = async (req, res, next) => {
+  // Only protect admin HTML pages
+  if (req.path.startsWith('/admin') && req.path.endsWith('.html')) {
+    const token = req.query.token || req.headers['x-access-token'];
+    const username = req.query.username || req.headers['x-username'];
+    
+    if (!token || !username) {
+      return res.redirect('/admin-login.html');
+    }
+
+    try {
+      const [users] = await db.execute(
+        'SELECT id, username, role FROM users WHERE username = ? AND role = "admin"',
+        [username]
+      );
+
+      if (users.length === 0) {
+        return res.redirect('/admin-login.html');
+      }
+
+      // Token validation (simplified for demo)
+      if (!token.startsWith('admin-token-')) {
+        return res.redirect('/admin-login.html');
+      }
+
+      // Valid admin, allow access
+      next();
+    } catch (error) {
+      console.error('Admin page protection error:', error);
+      return res.redirect('/admin-login.html');
+    }
+  } else {
+    // Not an admin page, continue normally
+    next();
+  }
+};
+
+// Apply admin protection middleware
+app.use(protectAdminPages);
+
+// ===== USER AUTHENTICATION ENDPOINTS =====
+
+// Login route
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
 app.put('/api/subscriptions/:id/pause', async (req, res) => {
   try {
     const { id } = req.params;
@@ -950,143 +1278,6 @@ app.get('/api/admin/check', authenticateAdmin, (req, res) => {
     isAdmin: true,
     user: req.user 
   });
-});
-
-// User registration route - frontend compatible endpoint
-app.post('/api/users', async (req, res) => {
-  const startTime = Date.now();
-  const requestId = Math.random().toString(36).substring(2, 15);
-  
-  console.log(`[${requestId}] POST /api/users registration attempt started`);
-  
-  try {
-    const { username, password, email, phone, address, name } = req.body;
-    
-    // Log request details (without sensitive data)
-    console.log(`[${requestId}] Registration data received:`, {
-      username: username || 'missing',
-      email: email || 'missing',
-      phone: phone || 'not provided',
-      name: name || 'not provided'
-    });
-
-    // Enhanced validation with detailed logging
-    if (!username || !password || !email) {
-      console.log(`[${requestId}] Validation failed: missing required fields`);
-      return res.status(400).json({ 
-        error: 'Username, password, and email are required',
-        code: 'MISSING_FIELDS',
-        missingFields: {
-          username: !username,
-          password: !password,
-          email: !email
-        }
-      });
-    }
-
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      console.log(`[${requestId}] Validation failed: invalid email format`);
-      return res.status(400).json({ 
-        error: 'Please enter a valid email address',
-        code: 'INVALID_EMAIL',
-        received: email
-      });
-    }
-
-    // Validate username format
-    // const usernameRegex = /^[a-zA-Z0-9_-]{3,20}$/;
-    // if (!usernameRegex.test(username)) {
-    //   console.log(`[${requestId}] Validation failed: invalid username format`);
-    //   return res.status(400).json({ 
-    //     error: 'Username must be 3-20 characters and contain only letters, numbers, underscores, and hyphens',
-    //     code: 'INVALID_USERNAME',
-    //     received: username
-    //   });
-    // }
-
-    // Validate password strength
-    if (password.length < 6) {
-      console.log(`[${requestId}] Validation failed: weak password`);
-      return res.status(400).json({ 
-        error: 'Password must be at least 6 characters long',
-        code: 'WEAK_PASSWORD',
-        length: password.length
-      });
-    }
-
-    // Check if user already exists with detailed error
-    console.log(`[${requestId}] Checking for existing user...`);
-    
-    const [existingUsername] = await db.execute(
-      'SELECT id FROM users WHERE username = ?',
-      [username]
-    );
-    
-    if (existingUsername.length > 0) {
-      console.log(`[${requestId}] Username already exists: ${username}`);
-      return res.status(409).json({ 
-        error: 'Username already taken',
-        code: 'USERNAME_EXISTS',
-        username: username
-      });
-    }
-
-    const [existingEmail] = await db.execute(
-      'SELECT id FROM users WHERE email = ?',
-      [email]
-    );
-    
-    if (existingEmail.length > 0) {
-      console.log(`[${requestId}] Email already registered: ${email}`);
-      return res.status(409).json({ 
-        error: 'Email already registered',
-        code: 'EMAIL_EXISTS',
-        email: email
-      });
-    }
-
-    // Hash password with salt rounds
-    console.log(`[${requestId}] Hashing password...`);
-    const hashedPassword = await bcrypt.hash(password, 12);
-    
-    // Insert new user with transaction
-    console.log(`[${requestId}] Creating new user...`);
-    const [result] = await db.execute(
-      'INSERT INTO users (username, password, email, phone, address, name) VALUES (?, ?, ?, ?, ?, ?)',
-      [username, hashedPassword, email, phone || null, address || null, name || null]
-    );
-
-    const duration = Date.now() - startTime;
-    console.log(`[${requestId}] ✅ User registered successfully in ${duration}ms`);
-    
-    res.json({
-      success: true,
-      message: 'User registered successfully',
-      userId: result.insertId,
-      username: username,
-      requestId: requestId
-    });
-
-  } catch (error) {
-    const duration = Date.now() - startTime;
-    console.error(`[${requestId}] ❌ Registration error:`, {
-      error: error.message,
-      code: error.code,
-      errno: error.errno,
-      sqlState: error.sqlState,
-      duration: duration + 'ms'
-    });
-    
-    res.status(500).json({ 
-      error: 'Registration failed due to server error',
-      code: 'SERVER_ERROR',
-      details: error.message,
-      requestId: requestId,
-      timestamp: new Date().toISOString()
-    });
-  }
 });
 
 // Start server
