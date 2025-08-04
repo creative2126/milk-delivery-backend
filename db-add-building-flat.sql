@@ -1,0 +1,3 @@
+ALTER TABLE users
+ADD COLUMN building_name VARCHAR(255) NULL,
+ADD COLUMN flat_number VARCHAR(50) NULL;

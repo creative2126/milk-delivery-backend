@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Pause Issue</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .debug-section { background: #f0f0f0; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .subscription-card { border: 1px solid #ccc; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .action-btn { padding: 8px 16px; margin: 5px; cursor: pointer; }
+        .pause-btn { background: #ffc107; }
+        .resume-btn { background: #28a745; color: white; }
+        .cancel-btn { background: #dc3545; color: white; }
+        .log { background: #000; color: #0f0; padding: 10px; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>Debug Pause Button Issue</h1>
+    
+    <div class="debug-section">
+        <h3>Debug Controls:</h3>
+        <button onclick="setTestUser()">Set Test User</button>
+        <button onclick="createTestSubscription()">Create Test Subscription</button>
+        <button onclick="loadSubscriptions()">Load Subscriptions</button>
+    </div>
+    
+    <div id="subscriptionsContainer"></div>
+    
+    <div class="debug-section">
+        <h3>Debug Log:</h3>
+        <div id="debugLog" class="log"></div>
+    </div>
+
+    <script>
+        function log(message) {
+            const logDiv = document.getElementById('debugLog');
+            logDiv.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '<br>';
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function setTestUser() {
+            localStorage.setItem('userName', 'debuguser');
+            log('Test user set: debuguser');
+        }
+
+        async function createTestSubscription() {
+            log('Creating test subscription...');
+            try {
+                const response = await fetch('/api/subscriptions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: 'debuguser',
+                        subscription_type: 'Test Daily Milk',
+                        duration: '30 days',
+                        amount: 1000,
+                        address: '123 Debug Street',
+                        building_name: 'Debug Building',
+                        flat_number: 'D101',
+                        payment_id: 'debug_payment_123'
+                    })
+                });
+                const data = await response.json();
+                log('Create subscription response: ' + JSON.stringify(data));
+                loadSubscriptions();
+            } catch (error) {
+                log('Error creating subscription: ' + error.message);
+            }
+        }
+
+        async function loadSubscriptions() {
+            const username = localStorage.getItem('userName');
+            if (!username) {
+                log('No user logged in');
+                return;
+            }
+            
+            log('Loading subscriptions for: ' + username);
+            try {
+                const response = await fetch(`/api/subscriptions/user/${username}`);
+                const data = await response.json();
+                log('Subscriptions loaded: ' + JSON.stringify(data, null, 2));
+                renderSubscriptions(data.subscriptions);
+            } catch (error) {
+                log('Error loading subscriptions: ' + error.message);
+            }
+        }
+
+        function renderSubscriptions(subscriptions) {
+            const container = document.getElementById('subscriptionsContainer');
+            if (subscriptions.length === 0) {
+                container.innerHTML = '<p>No subscriptions found</p>';
+                return;
+            }
+
+            container.innerHTML = subscriptions.map(sub => `
+                <div class="subscription-card">
+                    <h3>${subscription.subscription_type}</h3>
+                    <p>ID: ${subscription.id}</p>
+                    <p>Status: ${subscription.status}</p>
+                    <div>
+                        <button class="action-btn pause-btn" onclick="debugPause(${subscription.id})">
+                            PAUSE (ID: ${subscription.id})
+                        </button>
+                        <button class="action-btn resume-btn" onclick="debugResume(${subscription.id})">
+                            RESUME (ID: ${subscription.id})
+                        </button>
+                        <button class="action-btn cancel-btn" onclick="debugCancel(${subscription.id})">
+                            CANCEL (ID: ${subscription.id})
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function debugPause(id) {
+            log('=== DEBUG PAUSE CLICKED ===');
+            log('Calling pause endpoint for ID: ' + id);
+            log('Endpoint: /api/subscriptions/' + id + '/pause');
+            
+            try {
+                const response = await fetch(`/api/subscriptions/${id}/pause`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: localStorage.getItem('userName') })
+                });
+                
+                const data = await response.json();
+                log('Pause response: ' + JSON.stringify(data));
+                
+                if (response.ok) {
+                    log('✅ PAUSE SUCCESSFUL - Status should be "inactive"');
+                } else {
+                    log('❌ PAUSE FAILED: ' + data.error);
+                }
+                
+                loadSubscriptions();
+            } catch (error) {
+                log('❌ PAUSE ERROR: ' + error.message);
+            }
+        }
+
+        async function debugResume(id) {
+            log('=== DEBUG RESUME CLICKED ===');
+            log('Calling resume endpoint for ID: ' + id);
+            
+            try {
+                const response = await fetch(`/api/subscriptions/${id}/resume`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: localStorage.getItem('userName') })
+                });
+                
+                const data = await response.json();
+                log('Resume response: ' + JSON.stringify(data));
+                
+                if (response.ok) {
+                    log('✅ RESUME SUCCESSFUL - Status should be "active"');
+                } else {
+                    log('❌ RESUME FAILED: ' + data.error);
+                }
+                
+                loadSubscriptions();
+            } catch (error) {
+                log('❌ RESUME ERROR: ' + error.message);
+            }
+        }
+
+        async function debugCancel(id) {
+            log('=== DEBUG CANCEL CLICKED ===');
+            log('Calling cancel endpoint for ID: ' + id);
+            
+            try {
+                const response = await fetch(`/api/subscriptions/${id}/cancel`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: localStorage.getItem('userName') })
+                });
+                
+                const data = await response.json();
+                log('Cancel response: ' + JSON.stringify(data));
+                
+                if (response.ok) {
+                    log('✅ CANCEL SUCCESSFUL - Status should be "cancelled"');
+                } else {
+                    log('❌ CANCEL FAILED: ' + data.error);
+                }
+                
+                loadSubscriptions();
+            } catch (error) {
+                log('❌ CANCEL ERROR: ' + error.message);
+            }
+        }
+
+        // Initialize
+        const savedUser = localStorage.getItem('userName');
+        if (savedUser) {
+            log('Current user: ' + savedUser);
+        }
+    </script>
+</body>
+</html>

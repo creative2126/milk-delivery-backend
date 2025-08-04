@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Milk Delivery</title>
+    <link rel="stylesheet" href="styles-new.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .admin-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .admin-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .admin-header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .admin-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .stat-card i {
+            font-size: 2em;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .stat-card h3 {
+            font-size: 2em;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .stat-card p {
+            color: #666;
+        }
+
+        .admin-content {
+            padding: 30px;
+        }
+
+        .search-filter {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .search-filter input, .search-filter select {
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .subscriptions-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .subscriptions-table th,
+        .subscriptions-table td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        .subscriptions-table th {
+            background: #667eea;
+            color: white;
+            font-weight: 600;
+        }
+
+        .subscriptions-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .status-badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-active {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-inactive {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-cancelled {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .action-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 5px;
+        }
+
+        .btn-view {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-cancel {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-activate {
+            background: #28a745;
+            color: white;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            font-size: 1.2em;
+            color: #666;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 50px;
+            color: #666;
+        }
+
+        @media (max-width: 768px) {
+            .admin-container {
+                margin: 10px;
+            }
+            
+            .admin-header {
+                padding: 20px;
+            }
+            
+            .admin-header h1 {
+                font-size: 2em;
+            }
+            
+            .subscriptions-table {
+                font-size: 14px;
+            }
+            
+            .subscriptions-table th,
+            .subscriptions-table td {
+                padding: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-container">
+        <div class="admin-header">
+            <h1><i class="fas fa-tachometer-alt"></i> Admin Dashboard</h1>
+            <p>Manage Milk Delivery Subscriptions</p>
+        </div>
+
+        <div class="admin-stats">
+            <div class="stat-card">
+                <i class="fas fa-users"></i>
+                <h3 id="totalSubscriptions">0</h3>
+                <p>Total Subscriptions</p>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-check-circle"></i>
+                <h3 id="activeSubscriptions">0</h3>
+                <p>Active Subscriptions</p>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-rupee-sign"></i>
+                <h3 id="totalRevenue">₹0</h3>
+                <p>Total Revenue</p>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-calendar-day"></i>
+                <h3 id="todaySubscriptions">0</h3>
+                <p>Today's Subscriptions</p>
+            </div>
+        </div>
+
+        <div class="admin-content">
+            <div class="search-filter">
+                <input type="text" id="searchInput" placeholder="Search by username or address...">
+                <select id="statusFilter">
+                    <option value="">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="cancelled">Cancelled</option>
+                </select>
+            </div>
+
+            <div id="loading" class="loading">
+                <i class="fas fa-spinner fa-spin"></i> Loading subscriptions...
+            </div>
+
+            <div id="subscriptionsList" style="display: none;">
+                <table class="subscriptions-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Username</th>
+                            <th>Subscription</th>
+                            <th>Duration</th>
+                            <th>Amount</th>
+                            <th>Address</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="subscriptionsTableBody">
+                        <!-- Data will be populated here -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div id="noData" class="no-data" style="display: none;">
+                <i class="fas fa-inbox"></i>
+                <p>No subscriptions found</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class AdminDashboard {
+            constructor() {
+                this.subscriptions = [];
+                this.filteredSubscriptions = [];
+                this.isAdmin = false;
+                this.checkAdminAccess();
+            }
+
+            async checkAdminAccess() {
+                const username = localStorage.getItem('userName');
+                const token = localStorage.getItem('adminToken');
+                
+                console.log('Checking admin access...');
+                console.log('Username:', username);
+                console.log('Token:', token);
+                
+                if (!username || !token) {
+                    console.log('Missing credentials, redirecting to login...');
+                    this.showAdminLogin();
+                    return;
+                }
+
+                try {
+                    const response = await fetch('/api/admin/check', {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'x-username': username
+                        }
+                    });
+
+                    console.log('Admin check response:', response.status);
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        console.log('Admin check successful:', data);
+                        this.isAdmin = true;
+                        this.init();
+                    } else {
+                        console.log('Admin check failed, redirecting...');
+                        this.showAdminLogin();
+                    }
+                } catch (error) {
+                    console.error('Admin check error:', error);
+                    this.showAdminLogin();
+                }
+            }
+
+            showAdminLogin() {
+                console.log('Redirecting to admin login...');
+                window.location.href = 'admin-login.html';
+            }
+
+            async init() {
+                console.log('Initializing admin dashboard...');
+                await this.loadSubscriptions();
+                this.setupEventListeners();
+                this.updateStats();
+                this.renderSubscriptions();
+            }
+
+            async loadSubscriptions() {
+                console.log('Loading subscriptions...');
+                try {
+                    const username = localStorage.getItem('userName');
+                    const token = localStorage.getItem('adminToken');
+                    
+                    console.log('Making request to /api/admin/subscriptions');
+                    const response = await fetch('/api/admin/subscriptions', {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'x-username': username
+                        }
+                    });
+
+                    console.log('Response status:', response.status);
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        console.log('Received data:', data);
+                        this.subscriptions = data.subscriptions || [];
+                        this.filteredSubscriptions = [...this.subscriptions];
+                        console.log('Loaded subscriptions:', this.subscriptions.length);
+                    } else if (response.status === 403) {
+                        console.log('Access forbidden, redirecting...');
+                        this.showAdminLogin();
+                        return;
+                    } else {
+                        console.log('Error response:', response.status);
+                        const errorData = await response.json();
+                        console.error('Error:', errorData);
+                        this.showError('Failed to load subscriptions: ' + (errorData.error || 'Unknown error'));
+                    }
+                } catch (error) {
+                    console.error('Error loading subscriptions:', error);
+                    this.showError('Failed to load subscriptions: ' + error.message);
+                } finally {
+                    document.getElementById('loading').style.display = 'none';
+                }
+            }
+
+            setupEventListeners() {
+                document.getElementById('searchInput').addEventListener('input', (e) => {
+                    this.filterSubscriptions(e.target.value, document.getElementById('statusFilter').value);
+                });
+
+                document.getElementById('statusFilter').addEventListener('change', (e) => {
+                    this.filterSubscriptions(document.getElementById('searchInput').value, e.target.value);
+                });
+            }
+
+            updateStats() {
+                console.log('Updating stats...');
+                const total = this.subscriptions.length;
+                const active = this.subscriptions.filter(s => s.status === 'active').length;
+                const revenue = this.subscriptions.reduce((sum, s) => sum + parseFloat(s.amount), 0);
+                const today = this.subscriptions.filter(s => {
+                    const subDate = new Date(s.created_at);
+                    const today = new Date();
+                    return subDate.toDateString() === today.toDateString();
+                }).length;
+
+                document.getElementById('totalSubscriptions').textContent = total;
+                document.getElementById('activeSubscriptions').textContent = active;
+                document.getElementById('totalRevenue').textContent = `₹${revenue.toLocaleString()}`;
+                document.getElementById('todaySubscriptions').textContent = today;
+                
+                console.log('Stats updated:', { total, active, revenue, today });
+            }
+
+            filterSubscriptions(searchTerm, statusFilter) {
+                console.log('Filtering subscriptions...', { searchTerm, statusFilter });
+                this.filteredSubscriptions = this.subscriptions.filter(sub => {
+                    const matchesSearch = !searchTerm || 
+                        sub.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        sub.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        sub.subscription_type.toLowerCase().includes(searchTerm.toLowerCase());
+                    
+                    const matchesStatus = !statusFilter || sub.status === statusFilter;
+                    
+                    return matchesSearch && matchesStatus;
+                });
+                
+                console.log('Filtered subscriptions:', this.filteredSubscriptions.length);
+                this.renderSubscriptions();
+            }
+
+            renderSubscriptions() {
+                console.log('Rendering subscriptions...');
+                const tbody = document.getElementById('subscriptionsTableBody');
+                const listDiv = document.getElementById('subscriptionsList');
+                const noDataDiv = document.getElementById('noData');
+
+                if (this.filteredSubscriptions.length === 0) {
+                    console.log('No subscriptions to display');
+                    listDiv.style.display = 'none';
+                    noDataDiv.style.display = 'block';
+                    return;
+                }
+
+                console.log('Displaying subscriptions:', this.filteredSubscriptions.length);
+                listDiv.style.display = 'block';
+                noDataDiv.style.display = 'none';
+
+                tbody.innerHTML = this.filteredSubscriptions.map(sub => `
+                    <tr>
+                        <td>${sub.id}</td>
+                        <td>${sub.username}</td>
+                        <td>${sub.subscription_type}</td>
+                        <td>${sub.duration}</td>
+                        <td>₹${sub.amount}</td>
+                        <td>
+                            ${sub.address || 'N/A'}, ${sub.building_name || 'N/A'}, ${sub.flat_number || 'N/A'}
+${sub.latitude && sub.longitude && sub.latitude !== 'null' && sub.longitude !== 'null' ? 
+    `<br><a href="https://www.google.com/maps?q=${sub.latitude},${sub.longitude}" target="_blank" class="map-link" style="color:#007bff; text-decoration: underline;">
+        <i class="fas fa-map-marker-alt"></i> View on Map
+    </a>` : ''
+}
+                        </td>
+                        <td>
+                            <span class="status-badge status-${sub.status}">${sub.status}</span>
+                        </td>
+                        <td>${new Date(sub.created_at).toLocaleDateString()}</td>
+                        <td>
+                            <button class="action-btn btn-view" onclick="admin.viewSubscription(${sub.id})">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            ${sub.status === 'active' ? 
+                                `<button class="action-btn btn-cancel" onclick="admin.cancelSubscription(${sub.id})">
+                                    <i class="fas fa-times"></i>
+                                </button>` : 
+                                `<button class="action-btn btn-activate" onclick="admin.activateSubscription(${sub.id})">
+                                    <i class="fas fa-check"></i>
+                                </button>`
+                            }
+                        </td>
+                    </tr>
+                `).join('');
+            }
+
+            async viewSubscription(id) {
+                const subscription = this.subscriptions.find(s => s.id === id);
+                if (subscription) {
+                    alert(`Subscription Details:\n\n` +
+                          `ID: ${subscription.id}\n` +
+                          `Username: ${subscription.username}\n` +
+                          `Type: ${subscription.subscription_type}\n` +
+                          `Duration: ${subscription.duration}\n` +
+                          `Amount: ₹${subscription.amount}\n` +
+                          `Address: ${subscription.address || 'N/A'}\n` +
+                          `Building: ${subscription.building_name || 'N/A'}\n` +
+                          `Flat: ${subscription.flat_number || 'N/A'}\n` +
+                          `Payment ID: ${subscription.payment_id || 'N/A'}\n` +
+                          `Status: ${subscription.status}\n` +
+                          `Created: ${new Date(subscription.created_at).toLocaleString()}`);
+                }
+            }
+
+            async cancelSubscription(id) {
+                if (confirm('Are you sure you want to cancel this subscription?')) {
+                    try {
+                        const username = localStorage.getItem('userName');
+                        const response = await fetch(`/api/subscriptions/${id}/cancel`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ username })
+                        });
+                        
+                        if (response.ok) {
+                            await this.loadSubscriptions();
+                            this.updateStats();
+                            this.renderSubscriptions();
+                        } else {
+                            alert('Failed to cancel subscription');
+                        }
+                    } catch (error) {
+                        console.error('Error cancelling subscription:', error);
+                        alert('Error cancelling subscription');
+                    }
+                }
+            }
+
+            async activateSubscription(id) {
+                if (confirm('Are you sure you want to activate this subscription?')) {
+                    try {
+                        const username = localStorage.getItem('userName');
+                        const response = await fetch(`/api/subscriptions/${id}/activate`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ username })
+                        });
+                        
+                        if (response.ok) {
+                            await this.loadSubscriptions();
+                            this.updateStats();
+                            this.renderSubscriptions();
+                        } else {
+                            alert('Failed to activate subscription');
+                        }
+                    } catch (error) {
+                        console.error('Error activating subscription:', error);
+                        alert('Error activating subscription');
+                    }
+                }
+            }
+
+            showError(message) {
+                console.error('Error:', message);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('noData').innerHTML = `
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <p>${message}</p>
+                `;
+                document.getElementById('noData').style.display = 'block';
+            }
+        }
+
+        // Initialize admin dashboard
+        console.log('Admin dashboard initializing...');
+        const admin = new AdminDashboard();
+    </script>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Special Offers - Milk Delivery</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    
+    body {
+      margin: 0;
+      padding: 0;
+    }
+    
+    .offers-container {
+      padding: 10px;
+      max-width: 100%;
+    }
+    
+    .offer-image-wrapper {
+      margin-bottom: 15px;
+      width: 100%;
+    }
+    
+    .offer-image {
+      width: 100%;
+      height: auto;
+      max-width: 100%;
+      display: block;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    @media (max-width: 768px) {
+      .offers-container {
+        padding: 8px;
+      }
+      
+      .offer-image-wrapper {
+        margin-bottom: 12px;
+      }
+      
+      .offer-image {
+        border-radius: 6px;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .offers-container {
+        padding: 5px;
+      }
+      
+      .offer-image-wrapper {
+        margin-bottom: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="header-section">
+      <a href="index.html" class="header-link">
+        <img src="images/logo.png" alt="Logo" class="logo" />
+        <h1>Special Offers</h1>
+      </a>
+    </header>
+
+    <div class="offers-container">
+      <div class="offer-image-wrapper">
+        <img src="images/image3.jpg" alt="Milk Offer 3" class="offer-image" />
+      </div>
+      <div class="offer-image-wrapper">
+        <img src="images/image4.jpg" alt="Milk Offer 4" class="offer-image" />
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <nav class="bottom-nav">
+      <a href="index.html" class="nav-item">Home</a>
+      <a href="cart.html" class="nav-item">Cart</a>
+      <a href="offers-mobile.html" class="nav-item active">Offers</a>
+      <a href="subscription.html" class="nav-item">Subscription</a>
+      <a href="#" class="nav-item">Profile</a>
+    </nav>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

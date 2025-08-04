@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Resume Subscription</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .subscription-card { border: 1px solid #ccc; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .status-inactive { background-color: #f8d7da; }
+        .resume-btn { background: #28a745; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Test Resume Subscription</h1>
+    <div id="subscriptionsContainer"></div>
+
+    <script>
+        // Simulate logged in user
+        localStorage.setItem('userName', 'testuser');
+        
+        // Test the API directly
+        fetch('http://localhost:3000/api/subscriptions/user/testuser')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('subscriptionsContainer');
+                
+                if (data.subscriptions && data.subscriptions.length > 0) {
+                    data.subscriptions.forEach(sub => {
+                        const card = document.createElement('div');
+                        card.className = 'subscription-card';
+                        
+                        let buttons = '';
+                        if (sub.status === 'inactive') {
+                            buttons = '<button class="resume-btn" onclick="resumeSubscription(' + sub.id + ')">Resume Subscription</button>';
+                        }
+                        
+                        card.innerHTML = `
+                            <h3>${sub.subscription_type}</h3>
+                            <p>Status: ${sub.status}</p>
+                            <p>Amount: ₹${sub.amount}</p>
+                            ${buttons}
+                        `;
+                        container.appendChild(card);
+                    });
+                } else {
+                    container.innerHTML = '<p>No subscriptions found</p>';
+                }
+            })
+            .catch(error => {
+                document.getElementById('subscriptionsContainer').innerHTML = '<p>Error loading subscriptions: ' + error.message + '</p>';
+            });
+
+        function resumeSubscription(id) {
+            fetch(`http://localhost:3000/api/subscriptions/${id}/resume`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: 'testuser' })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                location.reload();
+            })
+            .catch(error => alert('Error: ' + error.message));
+        }
+    </script>
+</body>
+</html>

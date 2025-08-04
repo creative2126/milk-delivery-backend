@@ -1,0 +1,500 @@
+/* Modern UI Design for Milk Subscription App */
+
+/* Reset and base styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  background: #f8f9fa;
+  color: #212529;
+  line-height: 1.6;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.header-section {
+  display: flex;
+  align-items: center;
+  padding: 15px 20px;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-section .logo {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  margin-right: 10px;
+}
+
+.header-section h1 {
+  font-size: 1.5em;
+  color: #007bff;
+  font-weight: 600;
+}
+
+/* Navigation */
+.navbar {
+  background: #007bff;
+  padding: 12px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.navbar ul {
+  list-style: none;
+  display: flex;
+  gap: 20px;
+}
+
+.navbar a {
+  color: white;
+  text-decoration: none;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 20px;
+  transition: background 0.3s;
+}
+
+.navbar a:hover {
+  background: rgba(255,255,255,0.2);
+}
+
+/* Main content */
+main {
+  flex: 1;
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Search bar */
+.search-section {
+  background: white;
+  padding: 15px 20px;
+  margin-bottom: 20px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.search-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #dee2e6;
+  border-radius: 25px;
+  font-size: 16px;
+  outline: none;
+}
+
+.search-input:focus {
+  border-color: #007bff;
+}
+
+/* Subscription page */
+.subscription-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  margin-bottom: 40px;
+}
+
+.subscription-card {
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  transition: transform 0.2s, box-shadow 0.2s;
+  border: 1px solid #e9ecef;
+}
+
+.subscription-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+}
+
+.subscription-card img {
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+  margin: 0 auto 16px;
+  display: block;
+}
+
+.subscription-card h2 {
+  font-size: 1.25em;
+  color: #212529;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.subscription-card p {
+  color: #6c757d;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.subscription-card .price {
+  font-size: 1.5em;
+  font-weight: 700;
+  color: #007bff;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.subscribe-btn {
+  width: 100%;
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 14px 24px;
+  border-radius: 25px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.subscribe-btn:hover {
+  background: #0056b3;
+}
+
+/* Duration selector */
+.duration-selector {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin: 24px 0;
+}
+
+.duration-selector label {
+  padding: 12px 24px;
+  border: 2px solid #007bff;
+  border-radius: 25px;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-weight: 500;
+}
+
+.duration-selector input[type="radio"] {
+  display: none;
+}
+
+.duration-selector input[type="radio"]:checked + label {
+  background: #007bff;
+  color: white;
+}
+
+/* Modal styles */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-content {
+  background: white;
+  padding: 32px;
+  border-radius: 20px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+}
+
+.modal-content h2 {
+  color: #212529;
+  margin-bottom: 24px;
+  text-align: center;
+  font-size: 1.5em;
+  font-weight: 600;
+}
+
+#map {
+  height: 350px;
+  border-radius: 16px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  border: 1px solid #e9ecef;
+}
+
+/* Map controls styling */
+.leaflet-control-container .leaflet-control {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.leaflet-control-geocoder {
+  border-radius: 25px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.leaflet-control-geocoder-form input {
+  border-radius: 25px;
+  padding: 12px 16px;
+  border: 1px solid #dee2e6;
+  font-size: 14px;
+}
+
+.leaflet-control-geocoder-form button {
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+}
+
+/* Location buttons */
+.location-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin: 20px 0;
+}
+
+.location-buttons button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 25px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+#confirmLocationBtn {
+  background: #007bff;
+  color: white;
+}
+
+#confirmLocationBtn:hover:not(:disabled) {
+  background: #0056b3;
+  transform: translateY(-1px);
+}
+
+#cancelLocationBtn {
+  background: #f8f9fa;
+  color: #6c757d;
+  border: 1px solid #dee2e6;
+}
+
+#cancelLocationBtn:hover {
+  background: #e9ecef;
+}
+
+#confirmLocationBtn:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Building form styling */
+#buildingFlatForm {
+  margin-top: 24px;
+  padding: 24px;
+  background: #f8f9fa;
+  border-radius: 16px;
+  border: 1px solid #e9ecef;
+}
+
+#buildingFlatForm h3 {
+  color: #212529;
+  margin-bottom: 16px;
+  font-size: 1.2em;
+  font-weight: 600;
+}
+
+#buildingFlatForm label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #495057;
+}
+
+#buildingFlatForm input {
+  width: 100%;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border: 1px solid #ced4da;
+  border-radius: 8px;
+  font-size: 16px;
+  transition: border-color 0.3s;
+}
+
+#buildingFlatForm input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+}
+
+#buildingFlatForm button {
+  width: 100%;
+  margin: 8px 0;
+}
+
+/* Map marker styling */
+.leaflet-popup-content-wrapper {
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.leaflet-popup-content {
+  margin: 12px 16px;
+  font-size: 14px;
+}
+
+.leaflet-popup-tip {
+  background: white;
+}
+
+/* Form styles */
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #495057;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #ced4da;
+  border-radius: 8px;
+  font-size: 16px;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+/* Buttons */
+.btn-primary {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.btn-primary:hover {
+  background: #0056b3;
+}
+
+.btn-secondary {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  background: #545b62;
+}
+
+/* Customer reviews */
+.customer-reviews {
+  padding: 40px 20px;
+  background: white;
+  margin: 20px 0;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.customer-reviews h2 {
+  color: #212529;
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.reviews {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.review {
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 12px;
+  border-left: 4px solid #007bff;
+}
+
+.review p {
+  font-style: italic;
+  color: #495057;
+  margin-bottom: 12px;
+}
+
+.review span {
+  color: #007bff;
+  font-weight: 600;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .subscription-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .modal-content {
+    margin: 20px;
+    width: calc(100% - 40px);
+  }
+  
+  .header-section {
+    padding: 12px 16px;
+  }
+  
+  .header-section h1 {
+    font-size: 1.3em;
+  }
+}
+
+/* Utility classes */
+.hidden {
+  display: none !important;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.mb-20 {
+  margin-bottom: 20px;
+}

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Authentication</title>
+</head>
+<body>
+    <h1>Test Authentication</h1>
+    
+    <h2>Register</h2>
+    <form id="registerForm">
+        <input type="email" id="regEmail" placeholder="Email" value="test@example.com" required>
+        <input type="password" id="regPassword" placeholder="Password" value="password123" required>
+        <input type="text" id="regName" placeholder="Name" value="Test User" required>
+        <input type="text" id="regPhone" placeholder="Phone" value="1234567890" required>
+        <button type="submit">Register</button>
+    </form>
+    
+    <h2>Login</h2>
+    <form id="loginForm">
+        <input type="text" id="loginEmail" placeholder="Email or Username" value="test@example.com" required>
+        <input type="password" id="loginPassword" placeholder="Password" value="password123" required>
+        <button type="submit">Login</button>
+    </form>
+    
+    <div id="result"></div>
+
+    <script>
+        const resultDiv = document.getElementById('result');
+        
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                username: document.getElementById('regEmail').value,
+                password: document.getElementById('regPassword').value,
+                name: document.getElementById('regName').value,
+                phone: document.getElementById('regPhone').value,
+                email: document.getElementById('regEmail').value
+            };
+            
+            try {
+                const response = await fetch('/api/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                resultDiv.innerHTML = '<h3>Registration Result:</h3><pre>' + JSON.stringify(result, null, 2) + '</pre>';
+            } catch (error) {
+                resultDiv.innerHTML = '<h3>Registration Error:</h3><pre>' + error.message + '</pre>';
+            }
+        });
+        
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                username: document.getElementById('loginEmail').value,
+                password: document.getElementById('loginPassword').value
+            };
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                resultDiv.innerHTML = '<h3>Login Result:</h3><pre>' + JSON.stringify(result, null, 2) + '</pre>';
+            } catch (error) {
+                resultDiv.innerHTML = '<h3>Login Error:</h3><pre>' + error.message + '</pre>';
+            }
+        });
+    </script>
+</body>
+</html>

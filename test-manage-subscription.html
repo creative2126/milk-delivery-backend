@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Manage Subscription</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .subscription-card {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            border-left: 4px solid #007bff;
+        }
+        .action-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .pause-btn { background: #ffc107; }
+        .resume-btn { background: #28a745; color: white; }
+        .cancel-btn { background: #dc3545; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Manage Subscription</h1>
+        <div class="subscription-card">
+            <h3>Subscription Management</h3>
+            <p>Subscription ID: <span id="subscription_id">1</span></p>
+            <p>Status: <span id="status">Active</span></p>
+            <button class="action-btn pause-btn" onclick="pauseSubscription(1)">Pause</button>
+            <button class="action-btn resume-btn" onclick="resumeSubscription(1)">Resume</button>
+            <button class="action-btn cancel-btn" onclick="cancelSubscription(1)">Cancel</button>
+        </div>
+    </div>
+    <script>
+        const subscription_id = 1;
+        const username = 'testuser';
+        
+        // Pause subscription
+        async function pauseSubscription(id) {
+            alert(`Pausing subscription ${id}`);
+            fetch(`/api/subscriptions/${id}/pause`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: username })
+            }).then(res => res.json()).then(data => alert(data.message));
+        }
+        
+        // Resume subscription
+        async function resumeSubscription(id) {
+            alert(`Resuming subscription ${id}`);
+            fetch(`/api/subscriptions/${id}/resume`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: username })
+            }).then(res => res.json()).then(data => alert(data.message));
+        }
+        
+        // Cancel subscription
+        async function cancelSubscription(id) {
+            alert(`Canceling subscription ${id}`);
+            fetch(`/api/subscriptions/${id}/cancel`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: username })
+            }).then(res => res.json()).then(data => alert(data.message));
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>All Milk</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* Additional styles for all-milk page */
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding-bottom: 60px; /* space for bottom cart bar */
+    }
+    header {
+      display: flex;
+      align-items: center;
+      padding: 10px;
+      border-bottom: 1px solid #ddd;
+      position: sticky;
+      top: 0;
+      background: white;
+      z-index: 10;
+    }
+    header h1 {
+      flex-grow: 1;
+      font-size: 1.5rem;
+      margin: 0;
+    }
+    header .back-btn {
+      font-size: 1.5rem;
+      cursor: pointer;
+      margin-right: 10px;
+      user-select: none;
+    }
+    header .search-icon {
+      font-size: 1.5rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #ddd;
+      background: #f9f9f9;
+    }
+    .tab {
+      flex-grow: 1;
+      text-align: center;
+      padding: 10px 0;
+      cursor: pointer;
+      font-weight: bold;
+      color: #555;
+      border-bottom: 3px solid transparent;
+      user-select: none;
+    }
+    .tab.active {
+      border-bottom-color: #007bff;
+      color: #007bff;
+    }
+    .filters {
+      display: flex;
+      justify-content: flex-end;
+      padding: 10px;
+      font-size: 0.9rem;
+      color: #555;
+      cursor: pointer;
+      user-select: none;
+    }
+    .milk-list {
+      padding: 0 10px;
+      display: flex;
+      flex-direction: column;
+    }
+    .milk-item {
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid #eee;
+      padding: 10px 0;
+    }
+    .milk-item img {
+      width: 60px;
+      height: 60px;
+      object-fit: cover;
+      border-radius: 5px;
+      margin-right: 10px;
+    }
+    .milk-info {
+      flex-grow: 1;
+    }
+    .milk-info h4 {
+      margin: 0 0 5px 0;
+      font-size: 1rem;
+    }
+    .milk-info p {
+      margin: 0 0 5px 0;
+      font-size: 0.85rem;
+      color: #777;
+    }
+    .price-rating {
+      font-size: 0.85rem;
+      color: #555;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .price {
+      font-weight: bold;
+      color: #000;
+    }
+    .rating {
+      color: #f5a623;
+    }
+    .add-btn, .qty-btn {
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      padding: 5px 10px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 0.9rem;
+    }
+    .qty-controls {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .qty-display {
+      min-width: 20px;
+      text-align: center;
+      font-weight: bold;
+    }
+    .bottom-cart-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #007bff;
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 15px;
+      font-weight: bold;
+      font-size: 1rem;
+      cursor: pointer;
+      user-select: none;
+      box-shadow: 0 -2px 5px rgba(0,0,0,0.2);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="back-btn" id="backBtn">&#8592;</div>
+    <h1>All Milk</h1>
+    <div class="search-icon" id="searchIcon">&#128269;</div>
+  </header>
+
+  <div class="tabs" id="tabs">
+    <div class="tab active" data-type="full-cream">Full Cream Milk</div>
+    <div class="tab" data-type="toned">Toned Milk</div>
+    <div class="tab" data-type="cow">Cow Milk</div>
+    <div class="tab" data-type="tetra">Tetra Milk</div>
+  </div>
+
+  <div class="filters" id="filters">
+    &#x2630; Filters
+  </div>
+
+  <div class="milk-list" id="milkList">
+    <!-- Milk items will be rendered here -->
+  </div>
+
+  <div class="bottom-cart-bar" id="bottomCartBar" style="display:none;">
+    <div id="cartSummary">0 ITEMS &#8377;0</div>
+    <div id="proceedBtn">Proceed to cart</div>
+  </div>
+
+  <script src="all-milk.js"></script>
+</body>
+</html>

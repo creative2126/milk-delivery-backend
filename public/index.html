@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Milk Delivery - Home</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Navbar removed as per user request -->
+
+  <main>
+    <header class="header-section">
+      <a href="index.html" class="header-link">
+        <img src="images/logo.jpg" alt="Logo" class="logo" />
+        
+      </a>
+    </header>
+    <section class="search-section">
+      <input type="text" placeholder="Search milk type, brand..." class="search-input" />
+      <button class="filter-btn">Filters</button>
+    </section>
+
+    <section class="schedule-section">
+      <div class="schedule-info">
+        <h2>Set Schedule for your repeated delivery</h2>
+        <p>Get them delivered everyday to your doorstep</p>
+        <a href="subscription.html" class="btn-primary">Know more</a>
+      </div>
+      <div class="schedule-image">
+        <img src="images/fresh-milk.jpg" alt="Milk Delivery" />
+      </div>
+    </section>
+
+    <section class="popular-milk-section">
+      <div class="section-header">
+        <h3>Popular Milk</h3>
+<a href="all-milk.html" class="see-all">See all ></a>
+      </div>
+      <div class="milk-list">
+        <div class="milk-card">
+          <img src="images/bottle1.jpg" alt="Amul- Full cream" />
+          <div class="milk-info">
+            <h4> Full cream</h4>
+            <p>500 ml, 1 L Bottle</p>
+            <div class="price-rating">
+              <span class="price">&#8377;32</span>
+              <span class="rating">⭐⭐⭐⭐⭐</span>
+            </div>
+            <button class="add-btn">ADD</button>
+          </div>
+        </div>
+        <div class="milk-card">
+          <img src="images/bottle1.jpg" alt="Rogaz- Toned milk" />
+          <div class="milk-info">
+            <h4> Toned milk</h4>
+            <p>500 ml, 1 L Bottle</p>
+            <div class="price-rating">
+              <span class="price">&#8377;32</span>
+              <span class="rating">⭐⭐⭐⭐⭐</span>
+            </div>
+            <button class="add-btn">ADD</button>
+          </div>
+        </div>
+        <!-- Add more milk cards as needed -->
+      </div>
+    </section>
+
+    <section class="offers-section" id="offersSection">
+      <div class="section-header">
+        <h3>Special Offers</h3>
+        <a href="all-milk.html" class="see-all">View all offers ></a>
+      </div>
+      <div class="offers-list">
+        <div class="offer-card">
+          <div class="discount-badge">20% OFF</div>
+          <img src="images/bottle1.jpg" alt="Amul Gold Milk" />
+          <div class="offer-info">
+            <h4> Gold Milk</h4>
+            <p>1L Pack - Full Cream</p>
+            <div class="price-section">
+              <span class="original-price">&#8377;70</span>
+              <span class="offer-price">&#8377;56</span>
+            </div>
+            <button class="add-btn offer-btn">ADD TO CART</button>
+          </div>
+        </div>
+        
+        <div class="offer-card">
+          <div class="discount-badge">15% OFF</div>
+          <img src="images/bottle1.jpg" alt="Rogaz Toned Milk" />
+          <div class="offer-info">
+            <h4> Toned Milk</h4>
+            <p>500ml Pack - Double Toned</p>
+            <div class="price-section">
+              <span class="original-price">&#8377;35</span>
+              <span class="offer-price">&#8377;30</span>
+            </div>
+            <button class="add-btn offer-btn">ADD TO CART</button>
+          </div>
+        </div>
+        
+        <div class="offer-card">
+          <div class="discount-badge">25% OFF</div>
+          <img src="images/bottle1.jpg" alt="Mother Dairy Curd" />
+          <div class="offer-info">
+            <h4>Dairy Curd</h4>
+            <p>400g Pack - Fresh & Creamy</p>
+            <div class="price-section">
+              <span class="original-price">&#8377;40</span>
+              <span class="offer-price">&#8377;30</span>
+            </div>
+            <button class="add-btn offer-btn">ADD TO CART</button>
+          </div>
+        </div>
+        
+        <div class="offer-card">
+          <div class="discount-badge">10% OFF</div>
+          <img src="images/bottle1.jpg" alt="Butter Combo" />
+          <div class="offer-info">
+            <h4> Combo Pack</h4>
+            <p>500g Butter + 1L Milk</p>
+            <div class="price-section">
+              <span class="original-price">&#8377;120</span>
+              <span class="offer-price">&#8377;108</span>
+            </div>
+            <button class="add-btn offer-btn">ADD TO CART</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <nav class="bottom-nav">
+      <a href="index.html" class="nav-item active">Home</a>
+      <a href="cart.html" class="nav-item">Cart</a>
+      <a href="offers-final.html" class="nav-item">Offers</a>
+      <a href="subscription.html" class="nav-item">Subscription</a>
+      <a href="profile.html" class="nav-item">Profile</a>
+    </nav>
+  </footer>
+
+  <!-- Profile Section -->
+  <section id="profileSection" class="profile-section hidden">
+    <h2>Welcome, <span id="profileName"></span></h2>
+    <p>Email: <span id="profileEmail"></span></p>
+    <button id="logoutBtn">Logout</button>
+  </section>
+
+  <!-- Modal Alert HTML -->
+  <div id="modalAlert" class="modal-alert hidden">
+    <div class="modal-content">
+      <span id="modalClose" class="modal-close">&times;</span>
+      <p id="modalMessage"></p>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login System Test Suite</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .test-btn { background-color: #007bff; color: white; }
+        .test-btn:hover { background-color: #0056b3; }
+        input {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Login System Test Suite</h1>
+    
+    <div class="test-section">
+        <h2>Server Health Check</h2>
+        <button class="test-btn" onclick="testHealth()">Test Server Health</button>
+        <div id="health-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Database Connection</h2>
+        <button class="test-btn" onclick="testDatabase()">Test Database Connection</button>
+        <div id="database-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Login Endpoint Test</h2>
+        <input type="text" id="test-username" placeholder="Username/Email" value="test@example.com">
+        <input type="password" id="test-password" placeholder="Password" value="password123">
+        <button class="test-btn" onclick="testLogin()">Test Login</button>
+        <div id="login-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Registration Endpoint Test</h2>
+        <input type="text" id="reg-username" placeholder="Email" value="newuser@example.com">
+        <input type="password" id="reg-password" placeholder="Password" value="password123">
+        <input type="text" id="reg-name" placeholder="Full Name" value="Test User">
+        <input type="text" id="reg-phone" placeholder="Phone" value="1234567890">
+        <button class="test-btn" onclick="testRegistration()">Test Registration</button>
+        <div id="registration-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Error Handling Test</h2>
+        <button class="test-btn" onclick="testInvalidLogin()">Test Invalid Login</button>
+        <button class="test-btn" onclick="testMissingFields()">Test Missing Fields</button>
+        <div id="error-result"></div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+
+        function displayResult(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.innerHTML = `<div class="test-result ${type}">${message}</div>`;
+        }
+
+        async function testHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                
+                if (response.ok && data.status === 'healthy') {
+                    displayResult('health-result', '✅ Server is healthy and database is connected', 'success');
+                } else {
+                    displayResult('health-result', `❌ Health check failed: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                displayResult('health-result', `❌ Health check error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testDatabase() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                
+                if (data.database === 'connected') {
+                    displayResult('database-result', '✅ Database connection successful', 'success');
+                } else {
+                    displayResult('database-result', `❌ Database connection failed: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                displayResult('database-result', `❌ Database test error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testLogin() {
+            const username = document.getElementById('test-username').value;
+            const password = document.getElementById('test-password').value;
+
+            try {
+                const response = await fetch(`${API_BASE}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    displayResult('login-result', `❌ Server returned HTML: ${text.substring(0, 200)}...`, 'error');
+                    return;
+                }
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayResult('login-result', '✅ Login successful', 'success');
+                } else {
+                    displayResult('login-result', `❌ Login failed: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                displayResult('login-result', `❌ Login test error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testRegistration() {
+            const username = document.getElementById('reg-username').value;
+            const password = document.getElementById('reg-password').value;
+            const name = document.getElementById('reg-name').value;
+            const phone = document.getElementById('reg-phone').value;
+
+            try {
+                const response = await fetch(`${API_BASE}/users`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, name, phone, email: username })
+                });
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    displayResult('registration-result', `❌ Server returned HTML: ${text.substring(0, 200)}...`, 'error');
+                    return;
+                }
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayResult('registration-result', '✅ Registration successful', 'success');
+                } else {
+                    displayResult('registration-result', `❌ Registration failed: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                displayResult('registration-result', `❌ Registration test error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testInvalidLogin() {
+            try {
+                const response = await fetch(`${API_BASE}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: 'invalid@user.com', password: 'wrongpass' })
+                });
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    displayResult('error-result', `❌ Server returned HTML for invalid login: ${text.substring(0, 200)}...`, 'error');
+                    return;
+                }
+
+                const data = await response.json();
+                
+                if (response.status === 401) {
+                    displayResult('error-result', '✅ Invalid login handled correctly', 'success');
+                } else {
+                    displayResult('error-result', `❌ Unexpected response for invalid login: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                displayResult('error-result', `❌ Invalid login test error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testMissingFields() {
+            try {
+                const response = await fetch(`${API_BASE}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: '', password: '' })
+                });
+
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    displayResult('error-result', `❌ Server returned HTML for missing fields: ${text.substring(0, 200)}...`, 'error');
+                    return;
+                }
+
+                const data = await response.json();
+                
+                if (response.status === 400) {
+                    displayResult('error-result', '✅ Missing fields handled correctly', 'success');
+                } else {
+                    displayResult('error-result', `❌ Unexpected response for missing fields: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                displayResult('error-result', `❌ Missing fields test error: ${error.message}`, 'error');
+            }
+        }
+
+        // Run health check on page load
+        testHealth();
+    </script>
+</body>
+</html>

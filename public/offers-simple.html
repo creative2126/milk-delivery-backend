@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Special Offers - Milk Delivery</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .offers-images {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      padding: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    
+    .offer-image-only {
+      width: 100%;
+      height: auto;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="header-section">
+      <a href="index.html" class="header-link">
+        <img src="images/logo.png" alt="Logo" class="logo" />
+        <h1>Special Offers</h1>
+      </a>
+    </header>
+
+    <div class="offers-images">
+      <img src="images/fresh-milk.jpg" alt="Milk Offer 1" class="offer-image-only" />
+      <img src="images/family-milk.jpg" alt="Milk Offer 2" class="offer-image-only" />
+    </div>
+  </main>
+
+  <footer>
+    <nav class="bottom-nav">
+      <a href="index.html" class="nav-item">Home</a>
+      <a href="cart.html" class="nav-item">Cart</a>
+      <a href="offers-simple.html" class="nav-item active">Offers</a>
+      <a href="subscription.html" class="nav-item">Subscription</a>
+      <a href="#" class="nav-item">Profile</a>
+    </nav>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
