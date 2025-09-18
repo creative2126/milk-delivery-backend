@@ -38,25 +38,15 @@ const SECRET_KEY = process.env.JWT_SECRET || "mysecretkey";
 
 // -------------------- Security Middleware --------------------
 app.use((req, res, next) => {
-  const inlineScriptHashes = [
-    "'sha256-KRpO9edhx1uhZkGLX6F5Y+/w7JMVPwRsNLRMW4227dY='",
-    "'sha256-FksEQ+TdNXu8T3PXQG+EGWf/8p0YUt+3+WKC27EX2K8='",
-    "'sha256-ex8EDmxx01iTEy3jd1QlKx9JTFFKY/lvk0FjW85jBsU='",
-    "'sha256-BOuSyAiCk1QrT/K01hHrEK7BSHKx0UBv+Zrap6shq9Q='",
-    "'sha256-RK4pQ8K05ryVkhksx+iQ5ixbrB++A0eS6TEbogTMLKM='"
-  ];
-
   helmet({
     contentSecurityPolicy: {
       directives: {
-        scriptSrcAttr: ["'unsafe-inline'"],
         defaultSrc: ["'self'"],
         scriptSrc: [
           "'self'",
           "https://cdnjs.cloudflare.com",
           "https://unpkg.com",
-          "https://checkout.razorpay.com",
-          ...inlineScriptHashes
+          "https://checkout.razorpay.com"
         ],
         styleSrc: [
           "'self'",
@@ -71,23 +61,16 @@ app.use((req, res, next) => {
           "data:",
           "https://cdnjs.cloudflare.com",
           "https://unpkg.com",
-          "https://api.razorpay.com",
-          "https://a.tile.openstreetmap.org",
-          "https://b.tile.openstreetmap.org",
-          "https://c.tile.openstreetmap.org"
+          "https://api.razorpay.com"
         ],
         connectSrc: [
           "'self'",
           "https://cdnjs.cloudflare.com",
           "https://unpkg.com",
           "https://api.razorpay.com",
-          "https://lumberjack.razorpay.com",
           "https://milk-delivery-backend.onrender.com"
         ],
-        frameSrc: [
-          "'self'",
-          "https://api.razorpay.com"
-        ]
+        frameSrc: ["'self'", "https://api.razorpay.com"]
       }
     }
   })(req, res, next);
@@ -128,22 +111,63 @@ app.use(async (req, res, next) => {
 });
 
 // -------------------- Authentication --------------------
+// Register
+app.post('/api/users', async (req, res) => {
+  try {
+    const { username, password, name, phone, email } = req.body;
+    if (!username || !password || !email) {
+      return res.status(400).json({ error: 'Username, password, and email are required' });
+    }
+
+    // Check if user already exists
+    const existing = await db.query(
+      'SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1',
+      [username, email]
+    );
+    if (Array.isArray(existing) && existing.length > 0) {
+      return res.status(409).json({ error: 'User already exists' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await db.query(
+      'INSERT INTO users (username, password, name, phone, email) VALUES (?, ?, ?, ?, ?)',
+      [username, hashedPassword, name, phone, email]
+    );
+
+    res.status(201).json({ message: 'User registered successfully' });
+  } catch (error) {
+    console.error('Register error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Login
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ success: false, error: 'Username and password required' });
     }
-    const query = 'SELECT * FROM users WHERE username = ? OR email = ?';
-    const users = await db.query(query, [username, username]);
-    if (!users || users.length === 0) {
+
+    const query = 'SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1';
+    const result = await db.query(query, [username, username]);
+
+    let user;
+    if (Array.isArray(result) && Array.isArray(result[0])) {
+      user = result[0][0];
+    } else if (Array.isArray(result)) {
+      user = result[0];
+    }
+
+    if (!user) {
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
-    const user = users[0];
+
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
+
     const token = jwt.sign(
       {
         id: user.id,
@@ -154,7 +178,8 @@ app.post('/api/login', async (req, res) => {
       SECRET_KEY,
       { expiresIn: '24h' }
     );
-    return res.json({
+
+    res.json({
       success: true,
       token,
       userName: user.name || user.username,
@@ -176,19 +201,15 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/admin', adminRoutes);
 
 // -------------------- Health Check --------------------
-// -------------------- Health Check --------------------
 app.get('/health', async (req, res) => {
   try {
     const dbHealth = await db.query('SELECT 1 AS health');
-
     let isConnected = false;
 
     if (Array.isArray(dbHealth)) {
       if (Array.isArray(dbHealth[0])) {
-        // Format: [[rows], fields]
         isConnected = dbHealth[0][0]?.health === 1;
       } else {
-        // Format: [rows]
         isConnected = dbHealth[0]?.health === 1;
       }
     }
@@ -203,31 +224,25 @@ app.get('/health', async (req, res) => {
   }
 });
 
-
 // -------------------- Static Files --------------------
 app.use(express.static(path.join(__dirname, '../frontend/public'), { maxAge: '1d' }));
 
 // -------------------- Frontend Routes --------------------
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public/home.html'));
+  res.sendFile(path.join(__dirname, '../frontend/public/index.html'));
 });
-
 app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/public/login.html'));
 });
-
 app.get('/register', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/public/register.html'));
 });
-
 app.get('/profile', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/public/profile.html'));
 });
-
 app.get('/admin-login', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/public/admin-login.html'));
 });
-
 app.get('/admin-fixed', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/public/admin-fixed.html'));
 });
