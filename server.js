@@ -136,12 +136,26 @@ app.post('/api/login', async (req, res) => {
     if (!match) {
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
-    // Success
-    return res.json({
-      success: true,
-      userName: user.name || user.username,
-      userEmail: user.email
-    });
+    // Generate JWT token
+const token = jwt.sign(
+  {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    role: user.role || 'user' // default role
+  },
+  SECRET_KEY,
+  { expiresIn: '24h' }
+);
+
+// Send response including token
+return res.json({
+  success: true,
+  token: token,
+  userName: user.name || user.username,
+  userEmail: user.email
+});
+
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ success: false, error: 'Internal server error' });

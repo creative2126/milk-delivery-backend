@@ -81,11 +81,14 @@ router.get('/check', authenticateToken, requireAdmin, (req, res) => {
 // Get all subscriptions for admin
 router.get('/subscriptions', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const query = `
+    const { status } = req.query;
+
+    let query = `
       SELECT
         s.id,
-        s.user_id,
-        u.username,
+        s.username,
+        u.phone,
+        u.email,
         s.subscription_type,
         s.duration,
         s.amount,
@@ -96,11 +99,19 @@ router.get('/subscriptions', authenticateToken, requireAdmin, async (req, res) =
         s.payment_id,
         s.created_at
       FROM subscriptions s
-      LEFT JOIN users u ON s.user_id = u.id
-      ORDER BY s.created_at DESC
+      LEFT JOIN users u ON s.username = u.username
     `;
 
-    const subscriptions = await db.execute(query);
+    const params = [];
+
+    if (status && status !== 'all') {
+      query += ' WHERE s.status = ?';
+      params.push(status);
+    }
+
+    query += ' ORDER BY s.created_at DESC';
+
+    const subscriptions = await db.execute(query, params);
 
     res.json({
       subscriptions: subscriptions,
