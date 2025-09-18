@@ -37,11 +37,12 @@
     "jsonwebtoken": "^9.0.2",
     "moment": "^2.29.4",
     "morgan": "^1.10.0",
-    "mysql2": "^3.6.5",
+    "mysql2": "^3.15.0",
     "node-cache": "^5.1.2",
     "node-fetch": "^3.3.2",
     "razorpay": "^2.9.6",
     "redis": "^4.6.10",
+    "sequelize": "^6.37.7",
     "uuid": "^9.0.1",
     "winston": "^3.17.0"
   },
