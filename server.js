@@ -176,18 +176,33 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/admin', adminRoutes);
 
 // -------------------- Health Check --------------------
+// -------------------- Health Check --------------------
 app.get('/health', async (req, res) => {
   try {
     const dbHealth = await db.query('SELECT 1 AS health');
+
+    let isConnected = false;
+
+    if (Array.isArray(dbHealth)) {
+      if (Array.isArray(dbHealth[0])) {
+        // Format: [[rows], fields]
+        isConnected = dbHealth[0][0]?.health === 1;
+      } else {
+        // Format: [rows]
+        isConnected = dbHealth[0]?.health === 1;
+      }
+    }
+
     res.json({
       status: 'healthy',
-      database: dbHealth[0][0].health === 1 ? 'connected' : 'disconnected',
+      database: isConnected ? 'connected' : 'disconnected',
       timestamp: new Date()
     });
   } catch (error) {
     res.status(503).json({ status: 'unhealthy', error: error.message });
   }
 });
+
 
 // -------------------- Static Files --------------------
 app.use(express.static(path.join(__dirname, '../frontend/public'), { maxAge: '1d' }));
