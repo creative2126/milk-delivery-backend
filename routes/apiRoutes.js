@@ -1,5 +1,3 @@
-
-
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
@@ -180,7 +178,7 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
                     THEN GREATEST(DATEDIFF(s.end_date, s.paused_at), 0)
                     WHEN s.status = 'expired' OR s.end_date < CURDATE()
                     THEN 0
-                    ELSE NULL
+                    ELSE 0
                 END as remaining_days
             FROM subscriptions s
             WHERE s.username = ? AND s.status IN ('active', 'paused', 'expired')
@@ -211,7 +209,7 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
 router.get('/api/subscriptions/summary/:username', cacheMiddleware.cacheUserData(300), async (req, res) => {
     try {
         const username = req.params.username;
-        
+
         if (!username) {
             return res.status(400).json({ error: 'Username is required' });
         }
@@ -230,7 +228,7 @@ router.get('/api/subscriptions/summary/:username', cacheMiddleware.cacheUserData
 
         // Get subscription summary
         const summaryQuery = `
-            SELECT 
+            SELECT
                 COUNT(*) as total_subscriptions,
                 SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_subscriptions,
                 SUM(CASE WHEN status = 'paused' THEN 1 ELSE 0 END) as paused_subscriptions,
@@ -245,7 +243,7 @@ router.get('/api/subscriptions/summary/:username', cacheMiddleware.cacheUserData
 
         // Get upcoming renewals
         const renewalsQuery = `
-            SELECT 
+            SELECT
                 s.id,
                 p.name as product_name,
                 s.end_date as renewal_date,
@@ -253,8 +251,8 @@ router.get('/api/subscriptions/summary/:username', cacheMiddleware.cacheUserData
                 s.total_amount as renewal_amount
             FROM subscriptions s
             JOIN products p ON s.product_id = p.id
-            WHERE s.user_id = ? 
-                AND s.status = 'active' 
+            WHERE s.user_id = ?
+                AND s.status = 'active'
                 AND s.end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
             ORDER BY s.end_date ASC
         `;
