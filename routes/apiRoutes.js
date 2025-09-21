@@ -163,6 +163,7 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
         }
 
         // Get the most recent active, paused, or expired subscription by username directly
+        // Fixed: Calculate remaining days correctly for paused subscriptions
         const query = `
             SELECT
                 s.id,
@@ -171,7 +172,16 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
                 s.created_at,
                 s.end_date,
                 s.status,
-                GREATEST(DATEDIFF(s.end_date, CURDATE()), 0) as remaining_days
+                s.paused_at,
+                CASE
+                    WHEN s.status = 'active' AND s.end_date IS NOT NULL
+                    THEN GREATEST(DATEDIFF(s.end_date, CURDATE()), 0)
+                    WHEN s.status = 'paused' AND s.end_date IS NOT NULL AND s.paused_at IS NOT NULL
+                    THEN GREATEST(DATEDIFF(s.end_date, s.paused_at), 0)
+                    WHEN s.status = 'expired' OR s.end_date < CURDATE()
+                    THEN 0
+                    ELSE NULL
+                END as remaining_days
             FROM subscriptions s
             WHERE s.username = ? AND s.status IN ('active', 'paused', 'expired')
             ORDER BY CASE WHEN s.status = 'active' THEN 1 ELSE 0 END DESC, CASE WHEN s.status = 'paused' THEN 1 ELSE 0 END DESC, s.created_at DESC

@@ -142,6 +142,7 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
         }
 
         // Get subscription data directly from users table (merged structure)
+        // Fixed: Calculate remaining days correctly for paused subscriptions
         const query = `
             SELECT
                 subscription_type,
@@ -149,9 +150,14 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
                 subscription_created_at as created_at,
                 subscription_end_date as end_date,
                 subscription_status as status,
+                paused_at,
                 CASE
-                    WHEN subscription_end_date IS NOT NULL
-                    THEN DATEDIFF(subscription_end_date, CURDATE())
+                    WHEN subscription_status = 'active' AND subscription_end_date IS NOT NULL
+                    THEN GREATEST(DATEDIFF(subscription_end_date, CURDATE()), 0)
+                    WHEN subscription_status = 'paused' AND subscription_end_date IS NOT NULL AND paused_at IS NOT NULL
+                    THEN GREATEST(DATEDIFF(subscription_end_date, paused_at), 0)
+                    WHEN subscription_status = 'expired' OR subscription_end_date < CURDATE()
+                    THEN 0
                     ELSE NULL
                 END as remaining_days
             FROM users
