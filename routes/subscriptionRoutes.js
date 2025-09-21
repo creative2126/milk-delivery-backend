@@ -564,7 +564,7 @@ router.put('/:id/pause', async (req, res) => {
         // Update subscription status to paused
         console.log('Updating subscription status to paused...');
         const updateResult = await db.query(
-            'UPDATE subscriptions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            'UPDATE subscriptions SET status = ?, paused_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
             ['paused', subscriptionId]
         );
         console.log('Subscription update result:', updateResult);
@@ -694,7 +694,7 @@ router.put('/:id/resume', async (req, res) => {
         // Update subscription status to active
         console.log('Updating subscription status to active...');
         const updateResult = await db.query(
-            'UPDATE subscriptions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            'UPDATE subscriptions SET status = ?, paused_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
             ['active', subscriptionId]
         );
         console.log('Subscription update result:', updateResult);

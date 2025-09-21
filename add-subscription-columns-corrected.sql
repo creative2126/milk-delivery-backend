@@ -1,6 +1,6 @@
 -- Add subscription columns to users table one by one
 
-USE milk_delivery;
+USE milk;
 
 -- Add subscription_type column
 ALTER TABLE users ADD COLUMN subscription_type VARCHAR(50) DEFAULT NULL;

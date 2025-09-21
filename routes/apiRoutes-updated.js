@@ -1,5 +1,3 @@
-
-
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
@@ -65,46 +63,27 @@ router.get('/profile', cacheMiddleware.cacheUserData(600), async (req, res) => {
             updated_at: user.updated_at || 'NA'
         };
 
-        // Fetch user_id for subscription query
-        const userId = user.id;
-
-        // Fetch most recent subscription for the user by username
-        const subscriptionQuery = `
-            SELECT s.*, DATEDIFF(s.end_date, CURDATE()) as remaining_days
-            FROM subscriptions s
-            WHERE s.username = ?
-            ORDER BY CASE WHEN s.status = 'active' THEN 1 ELSE 0 END DESC,
-                     CASE WHEN s.status = 'paused' THEN 1 ELSE 0 END DESC,
-                     s.created_at DESC
-            LIMIT 1
-        `;
-        const subscriptionData = await db.query(subscriptionQuery, [user.username]);
-        let subscription = null;
-        if (Array.isArray(subscriptionData) && subscriptionData.length > 0) {
-            if (Array.isArray(subscriptionData[0]) && subscriptionData[0].length > 0) {
-                subscription = subscriptionData[0][0];
-            } else if (subscriptionData[0]) {
-                subscription = subscriptionData[0];
-            }
-        }
-
-        // Merge subscription data into user object for frontend compatibility
+        // Get subscription data directly from users table (merged structure)
         const userWithSubscription = {
             ...safeUser,
-            subscription_type: subscription ? subscription.subscription_type : null,
-            subscription_duration: subscription ? subscription.duration : null,
-            subscription_status: subscription ? subscription.status : null,
-            subscription_start_date: subscription ? subscription.start_date : null,
-            subscription_end_date: subscription ? subscription.end_date : null,
-            subscription_address: subscription ? subscription.address : null,
-            subscription_building_name: subscription ? subscription.building_name : null,
-            subscription_flat_number: subscription ? subscription.flat_number : null,
-            remaining_days: subscription ? subscription.remaining_days : null
+            subscription_type: user.subscription_type || null,
+            subscription_duration: user.subscription_duration || null,
+            subscription_status: user.subscription_status || null,
+            subscription_start_date: user.subscription_start_date || null,
+            subscription_end_date: user.subscription_end_date || null,
+            subscription_address: user.subscription_address || null,
+            subscription_building_name: user.subscription_building_name || null,
+            subscription_flat_number: user.subscription_flat_number || null,
+            subscription_amount: user.subscription_amount || null,
+            subscription_payment_id: user.subscription_payment_id || null,
+            subscription_created_at: user.subscription_created_at || null,
+            subscription_updated_at: user.subscription_updated_at || null,
+            remaining_days: user.subscription_end_date ? Math.ceil((new Date(user.subscription_end_date) - new Date()) / (1000 * 60 * 60 * 24)) : null
         };
 
         const response = {
             user: userWithSubscription,
-            subscription: subscription,
+            subscription: userWithSubscription, // Keep for backward compatibility
             cache: true,
             timestamp: new Date().toISOString()
         };
@@ -162,19 +141,21 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
             return res.status(400).json({ error: 'Username is required' });
         }
 
-        // Get the most recent active, paused, or expired subscription by username directly
+        // Get subscription data directly from users table (merged structure)
         const query = `
             SELECT
-                s.id,
-                s.subscription_type,
-                s.duration,
-                s.created_at,
-                s.end_date,
-                s.status,
-                GREATEST(DATEDIFF(s.end_date, CURDATE()), 0) as remaining_days
-            FROM subscriptions s
-            WHERE s.username = ? AND s.status IN ('active', 'paused', 'expired')
-            ORDER BY CASE WHEN s.status = 'active' THEN 1 ELSE 0 END DESC, CASE WHEN s.status = 'paused' THEN 1 ELSE 0 END DESC, s.created_at DESC
+                subscription_type,
+                subscription_duration,
+                subscription_created_at as created_at,
+                subscription_end_date as end_date,
+                subscription_status as status,
+                CASE
+                    WHEN subscription_end_date IS NOT NULL
+                    THEN DATEDIFF(subscription_end_date, CURDATE())
+                    ELSE NULL
+                END as remaining_days
+            FROM users
+            WHERE username = ? AND subscription_status IN ('active', 'paused', 'expired')
             LIMIT 1
         `;
 
@@ -201,14 +182,14 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
 router.get('/api/subscriptions/summary/:username', cacheMiddleware.cacheUserData(300), async (req, res) => {
     try {
         const username = req.params.username;
-        
+
         if (!username) {
             return res.status(400).json({ error: 'Username is required' });
         }
 
-        // First get user ID from username
+        // Get user data with subscription info from merged table
         const userResult = await db.query(
-            'SELECT id FROM users WHERE username = ? OR email = ?',
+            'SELECT id, username, subscription_status, subscription_amount FROM users WHERE username = ? OR email = ?',
             [username, username]
         );
 
@@ -216,40 +197,39 @@ router.get('/api/subscriptions/summary/:username', cacheMiddleware.cacheUserData
             return res.status(404).json({ error: 'User not found' });
         }
 
-        const userId = userResult[0].id;
+        const user = userResult[0];
 
-        // Get subscription summary
+        // Get subscription summary from users table
         const summaryQuery = `
-            SELECT 
+            SELECT
                 COUNT(*) as total_subscriptions,
-                SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_subscriptions,
-                SUM(CASE WHEN status = 'paused' THEN 1 ELSE 0 END) as paused_subscriptions,
-                SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_subscriptions,
-                SUM(CASE WHEN status = 'active' THEN total_amount ELSE 0 END) as total_active_value,
-                AVG(CASE WHEN status = 'active' THEN total_amount ELSE NULL END) as avg_subscription_value
-            FROM subscriptions
-            WHERE user_id = ?
+                SUM(CASE WHEN subscription_status = 'active' THEN 1 ELSE 0 END) as active_subscriptions,
+                SUM(CASE WHEN subscription_status = 'paused' THEN 1 ELSE 0 END) as paused_subscriptions,
+                SUM(CASE WHEN subscription_status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_subscriptions,
+                SUM(CASE WHEN subscription_status = 'active' THEN subscription_amount ELSE 0 END) as total_active_value,
+                AVG(CASE WHEN subscription_status = 'active' THEN subscription_amount ELSE NULL END) as avg_subscription_value
+            FROM users
+            WHERE id = ?
         `;
 
-        const [summary] = await db.query(summaryQuery, [userId]);
+        const [summary] = await db.query(summaryQuery, [user.id]);
 
-        // Get upcoming renewals
+        // Get upcoming renewals from users table
         const renewalsQuery = `
-            SELECT 
-                s.id,
-                p.name as product_name,
-                s.end_date as renewal_date,
-                DATEDIFF(s.end_date, CURDATE()) as days_until_renewal,
-                s.total_amount as renewal_amount
-            FROM subscriptions s
-            JOIN products p ON s.product_id = p.id
-            WHERE s.user_id = ? 
-                AND s.status = 'active' 
-                AND s.end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
-            ORDER BY s.end_date ASC
+            SELECT
+                id,
+                subscription_type as product_name,
+                subscription_end_date as renewal_date,
+                DATEDIFF(subscription_end_date, CURDATE()) as days_until_renewal,
+                subscription_amount as renewal_amount
+            FROM users
+            WHERE id = ?
+                AND subscription_status = 'active'
+                AND subscription_end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+            ORDER BY subscription_end_date ASC
         `;
 
-        const [upcomingRenewals] = await db.query(renewalsQuery, [userId]);
+        const [upcomingRenewals] = await db.query(renewalsQuery, [user.id]);
 
         const response = {
             username,
