@@ -2,10 +2,10 @@
   "name": "milk-delivery-backend",
   "version": "2.0.0",
   "description": "Enhanced milk delivery subscription system backend",
-  "main": "server.js",
+  "main": "server-complete.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node server-complete.js",
+    "dev": "nodemon server-complete.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "lint": "eslint . --ext .js",

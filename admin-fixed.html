@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin Dashboard - Fresh & Organic Milk</title>
+  <link rel="stylesheet" href="styles-new.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      background-color: #f9faf9;
+      margin: 0;
+      padding: 0;
+      color: #2d3748;
+    }
+    header {
+      background-color: #38a169;
+      color: white;
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 1rem;
+    }
+    header img.logo {
+      height: 50px;
+    }
+    header h1 {
+      font-size: 1.5rem;
+      margin: 0;
+    }
+    .dashboard-container {
+      max-width: 1200px;
+      margin: 2rem auto;
+      background: white;
+      border-radius: 8px;
+      padding: 2rem;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .stats-section {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .stat-card {
+      background: #f7fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 1.5rem;
+      text-align: center;
+    }
+    .stat-card h3 {
+      margin: 0 0 0.5rem 0;
+      font-size: 2rem;
+      color: #38a169;
+    }
+    .stat-card p {
+      margin: 0;
+      font-size: 1rem;
+      color: #4a5568;
+    }
+    .subscriptions-section h2 {
+      font-size: 1.25rem;
+      margin-bottom: 1rem;
+      border-bottom: 2px solid #38a169;
+      padding-bottom: 0.25rem;
+    }
+    .subscriptions-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+    }
+    .subscriptions-table th,
+    .subscriptions-table td {
+      padding: 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .subscriptions-table th {
+      background-color: #f7fafc;
+      font-weight: 600;
+    }
+    .status-active {
+      color: #38a169;
+      font-weight: bold;
+    }
+    .status-paused {
+      color: #d69e2e;
+      font-weight: bold;
+    }
+    .status-expired {
+      color: #e53e3e;
+      font-weight: bold;
+    }
+    .logout-section {
+      text-align: center;
+      margin-top: 2rem;
+    }
+    .logout-btn {
+      background-color: #e53e3e;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 4px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+    .logout-btn:hover {
+      background-color: #c53030;
+    }
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      color: #4a5568;
+    }
+    .error {
+      background-color: #fed7d7;
+      color: #c53030;
+      padding: 1rem;
+      border-radius: 4px;
+      margin-bottom: 1rem;
+    }
+    @media (max-width: 600px) {
+      .dashboard-container {
+        margin: 1rem;
+        padding: 1rem;
+      }
+      .stats-section {
+        grid-template-columns: 1fr;
+      }
+      .subscriptions-table {
+        font-size: 0.9rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="images/logo.jpg" alt="Fresh & Organic Milk Logo" class="logo" />
+    <h1>Admin Dashboard</h1>
+  </header>
+
+  <main class="dashboard-container">
+    <div id="errorMessage" class="error" style="display: none;"></div>
+
+    <section class="stats-section">
+      <div class="stat-card">
+        <h3 id="totalSubscriptions">0</h3>
+        <p>Total Subscriptions</p>
+      </div>
+      <div class="stat-card">
+        <h3 id="activeSubscriptions">0</h3>
+        <p>Active Subscriptions</p>
+      </div>
+      <div class="stat-card">
+        <h3 id="totalRevenue">₹0</h3>
+        <p>Total Revenue</p>
+      </div>
+      <div class="stat-card">
+        <h3 id="todaySubscriptions">0</h3>
+        <p>Today's Subscriptions</p>
+      </div>
+    </section>
+
+    <section class="subscriptions-section">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h2>All Subscriptions</h2>
+        <div class="filter-section">
+          <label for="statusFilter" style="margin-right: 0.5rem; font-weight: 600;">Filter by Status:</label>
+          <select id="statusFilter" style="padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 4px; background: white;">
+            <option value="all">All Subscriptions</option>
+            <option value="active">Active</option>
+            <option value="paused">Paused</option>
+            <option value="expired">Expired</option>
+          </select>
+        </div>
+      </div>
+      <div id="loadingSubscriptions" class="loading">Loading subscriptions...</div>
+          <table class="subscriptions-table" id="subscriptionsTable" style="display: none;">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>User</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Flat No</th>
+                <th>Building</th>
+                <th>Type</th>
+                <th>Duration</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Location/Map</th>
+                <th>Created At</th>
+              </tr>
+            </thead>
+            <tbody id="subscriptionsTableBody">
+              <!-- Subscriptions will be populated here -->
+            </tbody>
+          </table>
+    </section>
+
+    <div class="logout-section">
+      <button id="logoutBtn" class="logout-btn">Logout</button>
+    </div>
+  </main>
+
+  <script src="admin-fixed.js"></script>
+</body>
+</html>

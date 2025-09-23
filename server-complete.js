@@ -1,3 +1,6 @@
+
+
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -12,8 +15,8 @@ require('dotenv').config();
 const db = require('./db');
 
 // Routes
-const subscriptionRoutes = require('./routes/subscriptionRoutes');
-const subscriptionRoutesUpdated = require('./routes/subscriptionRoutes-updated');
+const subscriptionRoutesFixed = require('./routes/subscriptionRoutes-fixed');
+// const subscriptionRoutesUpdated = require('./routes/subscriptionRoutes-updated'); // Commented out due to Sequelize dependency issues
 const apiRoutes = require('./routes/apiRoutes-complete'); // Updated to use complete API routes with pause/resume
 const optimizedRoutes = require('./routes/optimizedRoutes');
 const enhancedSubscriptionRoutes = require('./routes/enhancedSubscriptionRoutes');
@@ -192,8 +195,8 @@ app.post('/api/login', async (req, res) => {
 });
 
 // -------------------- API Routes --------------------
-app.use('/api/subscriptions', subscriptionRoutes);
-app.use('/api/subscriptions/v2', authenticateToken, subscriptionRoutesUpdated);
+app.use('/api/subscriptions', subscriptionRoutesFixed);
+// app.use('/api/subscriptions/v2', authenticateToken, subscriptionRoutesUpdated); // Commented out due to Sequelize dependency issues - subscriptionRoutesUpdated is not defined
 app.use('/api', apiRoutes); // Using complete API routes with pause/resume functionality
 app.use('/api/optimized', optimizedRoutes);
 app.use('/api/enhanced-subscriptions', enhancedSubscriptionRoutes);
@@ -247,11 +250,17 @@ app.get('/admin-fixed', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/public/admin-fixed.html'));
 });
 
-// -------------------- 404 Handlers --------------------
+// -------------------- 404 Handlers (moved to end) --------------------
 app.use('/api/*', (req, res) => {
   res.status(404).json({ error: 'API route not found' });
 });
-app.use('*', (req, res) => {
+
+// Handle non-API routes (frontend routes)
+app.use('*', (req, res, next) => {
+  // Skip API routes - let them fall through to 404
+  if (req.path.startsWith('/api/')) {
+    return next();
+  }
   res.sendFile(path.join(__dirname, '../frontend/public/home.html'));
 });
 

@@ -4,7 +4,7 @@ const db = require('../db');
 const queryOptimizer = require('../utils/queryOptimizer');
 const cacheMiddleware = require('../middleware/cacheMiddleware');
 const fetch = require('node-fetch');
-console.log('==== apiRoutes-complete.js router LOADED ====');
+console.log('==== apiRoutes-complete-fixed-with-validation.js router LOADED ====');
 
 // Helper function to geocode address to lat/lng using OpenStreetMap Nominatim API
 async function geocodeAddress(address) {
@@ -261,6 +261,56 @@ router.get('/api/subscriptions/summary/:username', cacheMiddleware.cacheUserData
     }
 });
 
+// Helper function to validate subscription state
+async function validateSubscriptionForPause(username) {
+    const [currentSub] = await db.query(
+        'SELECT subscription_status, subscription_end_date FROM users WHERE username = ?',
+        [username]
+    );
+
+    if (!currentSub) {
+        return { valid: false, error: 'Subscription not found' };
+    }
+
+    if (currentSub.subscription_status !== 'active') {
+        return { valid: false, error: `Cannot pause subscription. Current status: ${currentSub.subscription_status}. Only active subscriptions can be paused.` };
+    }
+
+    // Check if trying to pause within 5 hours of delivery
+    const now = new Date();
+    const deliveryTime = new Date(currentSub.subscription_end_date);
+    deliveryTime.setHours(6, 0, 0, 0); // Assuming delivery at 6 AM
+    const hoursDiff = (deliveryTime - now) / (1000 * 60 * 60);
+
+    if (hoursDiff < 5 && hoursDiff > 0) {
+        return { valid: false, error: 'Cannot pause subscription within 5 hours of delivery time' };
+    }
+
+    return { valid: true, subscription: currentSub };
+}
+
+// Helper function to validate subscription for resume
+async function validateSubscriptionForResume(username) {
+    const [currentSub] = await db.query(
+        'SELECT subscription_status, paused_at, subscription_end_date FROM users WHERE username = ?',
+        [username]
+    );
+
+    if (!currentSub) {
+        return { valid: false, error: 'Subscription not found' };
+    }
+
+    if (currentSub.subscription_status !== 'paused') {
+        return { valid: false, error: `Cannot resume subscription. Current status: ${currentSub.subscription_status}. Only paused subscriptions can be resumed.` };
+    }
+
+    if (!currentSub.paused_at) {
+        return { valid: false, error: 'Subscription is marked as paused but has no pause timestamp. Please contact support.' };
+    }
+
+    return { valid: true, subscription: currentSub };
+}
+
 // Pause subscription endpoint (updated for users table)
 router.put('/subscriptions/:id/pause', async (req, res) => {
     try {
@@ -271,28 +321,13 @@ router.put('/subscriptions/:id/pause', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Username is required' });
         }
 
-        // Get current subscription data from users table
-        const [currentSub] = await db.query(
-            'SELECT subscription_status, subscription_end_date FROM users WHERE username = ?',
-            [username]
-        );
+        console.log(`🔄 Attempting to pause subscription for user: ${username}`);
 
-        if (!currentSub) {
-            return res.status(404).json({ success: false, message: 'Subscription not found' });
-        }
-
-        if (currentSub.subscription_status !== 'active') {
-            return res.status(400).json({ success: false, message: 'Only active subscriptions can be paused' });
-        }
-
-        // Check if trying to pause within 5 hours of delivery
-        const now = new Date();
-        const deliveryTime = new Date(currentSub.subscription_end_date);
-        deliveryTime.setHours(6, 0, 0, 0); // Assuming delivery at 6 AM
-        const hoursDiff = (deliveryTime - now) / (1000 * 60 * 60);
-
-        if (hoursDiff < 5 && hoursDiff > 0) {
-            return res.status(400).json({ success: false, message: 'Cannot pause subscription within 5 hours of delivery time' });
+        // Validate subscription state
+        const validation = await validateSubscriptionForPause(username);
+        if (!validation.valid) {
+            console.log(`❌ Pause validation failed: ${validation.error}`);
+            return res.status(400).json({ success: false, message: validation.error });
         }
 
         // Update subscription status to paused and set paused_at timestamp
@@ -302,9 +337,11 @@ router.put('/subscriptions/:id/pause', async (req, res) => {
         );
 
         if (updateResult.affectedRows === 0) {
+            console.log(`❌ Failed to pause subscription for user: ${username}`);
             return res.status(400).json({ success: false, message: 'Failed to pause subscription' });
         }
 
+        console.log(`✅ Successfully paused subscription for user: ${username}`);
         res.json({ success: true, message: 'Subscription paused successfully' });
     } catch (error) {
         console.error('Error pausing subscription:', error);
@@ -312,7 +349,7 @@ router.put('/subscriptions/:id/pause', async (req, res) => {
     }
 });
 
-// Resume subscription endpoint (updated for users table)
+// Resume subscription endpoint (updated for users table) - WITH USER VALIDATION
 router.put('/subscriptions/:id/resume', async (req, res) => {
     try {
         const subscriptionId = req.params.id;
@@ -322,24 +359,35 @@ router.put('/subscriptions/:id/resume', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Username is required' });
         }
 
-        // Get current subscription data from users table
-        const [currentSub] = await db.query(
-            'SELECT subscription_status, paused_at FROM users WHERE username = ?',
-            [username]
-        );
+        console.log(`🔄 Attempting to resume subscription for user: ${username}`);
 
-        if (!currentSub) {
-            return res.status(404).json({ success: false, message: 'Subscription not found' });
+        // First validate that user exists
+        const userQuery = 'SELECT id, username FROM users WHERE username = ?';
+        const userResult = await db.query(userQuery, [username]);
+
+        if (!userResult || userResult.length === 0) {
+            console.log(`❌ User not found: ${username}`);
+            return res.status(404).json({ success: false, message: 'User not found' });
         }
 
-        if (currentSub.subscription_status !== 'paused') {
-            return res.status(400).json({ success: false, message: 'Only paused subscriptions can be resumed' });
+        const user = userResult[0];
+        console.log(`✅ User validated: ${username} (ID: ${user.id})`);
+
+        // Validate subscription state
+        const validation = await validateSubscriptionForResume(username);
+        if (!validation.valid) {
+            console.log(`❌ Resume validation failed: ${validation.error}`);
+            return res.status(400).json({ success: false, message: validation.error });
         }
+
+        const { subscription } = validation;
 
         // Calculate paused days
-        const pausedAt = new Date(currentSub.paused_at);
+        const pausedAt = new Date(subscription.paused_at);
         const now = new Date();
         const pausedDays = Math.ceil((now - pausedAt) / (1000 * 60 * 60 * 24));
+
+        console.log(`📅 Subscription was paused for ${pausedDays} days`);
 
         // Update subscription status to active and set resumed_at timestamp
         const updateResult = await db.query(
@@ -348,9 +396,11 @@ router.put('/subscriptions/:id/resume', async (req, res) => {
         );
 
         if (updateResult.affectedRows === 0) {
+            console.log(`❌ Failed to resume subscription for user: ${username}`);
             return res.status(400).json({ success: false, message: 'Failed to resume subscription' });
         }
 
+        console.log(`✅ Successfully resumed subscription for user: ${username}`);
         res.json({ success: true, message: 'Subscription resumed successfully' });
     } catch (error) {
         console.error('Error resuming subscription:', error);
@@ -359,5 +409,3 @@ router.put('/subscriptions/:id/resume', async (req, res) => {
 });
 
 module.exports = router;
-
-

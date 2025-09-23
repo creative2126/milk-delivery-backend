@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const DeliveryZone = require('../models/DeliveryZone');
+const User = require('../models/User')(db.sequelize, db.Sequelize.DataTypes);
 const Subscription = require('../models/Subscription');
 
 // Get subscription page
@@ -69,40 +70,37 @@ router.post('/api/subscriptions', async (req, res) => {
             startDate
         } = req.body;
 
-        // Calculate next delivery date based on frequency
-        const nextDeliveryDate = new Date(startDate);
+        // Calculate subscription end date based on frequency
+        const subscriptionEndDate = new Date(startDate);
         if (frequency === 'daily') {
-            nextDeliveryDate.setDate(nextDeliveryDate.getDate() + 1);
+            subscriptionEndDate.setDate(subscriptionEndDate.getDate() + 1);
         } else if (frequency === 'weekly') {
-            nextDeliveryDate.setDate(nextDeliveryDate.getDate() + 7);
+            subscriptionEndDate.setDate(subscriptionEndDate.getDate() + 7);
         } else if (frequency === 'monthly') {
-            nextDeliveryDate.setMonth(nextDeliveryDate.getMonth() + 1);
+            subscriptionEndDate.setMonth(subscriptionEndDate.getMonth() + 1);
         }
 
-        // Calculate total amount (example pricing)
-        const pricePerUnit = milkType === '500ml' ? 25 : 45;
-        const totalAmount = pricePerUnit * quantity;
-
-        const subscription = await Subscription.create({
-            userId,
-            milkType,
-            quantity,
-            frequency,
-            deliveryAddress,
-            deliveryZoneId,
-            preferredDeliveryTime,
-            startDate,
-            nextDeliveryDate,
-            totalAmount
+        // Update user subscription info in users table
+        const [updatedRows] = await User.update({
+            subscription_type: milkType,
+            subscription_duration: frequency,
+            subscription_status: 'active',
+            subscription_start_date: startDate,
+            subscription_end_date: subscriptionEndDate
+        }, {
+            where: { id: userId }
         });
+
+        if (updatedRows === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
 
         res.json({
             success: true,
-            subscription,
-            message: 'Subscription created successfully'
+            message: 'Subscription updated successfully in users table'
         });
     } catch (error) {
-        console.error('Error creating subscription:', error);
+        console.error('Error updating subscription in users table:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
@@ -191,19 +189,81 @@ router.put('/api/subscriptions/:id/pause', async (req, res) => {
 router.put('/api/subscriptions/:id/resume', async (req, res) => {
     try {
         const { id } = req.params;
-        
-        await Subscription.update(
-            { status: 'active' },
-            { where: { id } }
-        );
-        
+        const { username } = req.body || {};
+
+        console.log(`Resume subscription request: ID=${id}, Username=${username}`);
+
+        // First, check if subscription exists
+        const subscription = await Subscription.findByPk(id);
+        if (!subscription) {
+            console.log(`Subscription ${id} not found`);
+            return res.status(404).json({
+                success: false,
+                message: 'Subscription not found'
+            });
+        }
+
+        console.log(`Found subscription ${id}:`, {
+            status: subscription.status,
+            subscription_status: subscription.subscription_status,
+            user_id: subscription.user_id
+        });
+
+        // Check if subscription is in a pausable state
+        if (subscription.status !== 'paused' && subscription.subscription_status !== 'paused') {
+            console.log(`Subscription ${id} is not paused. Current status: ${subscription.status || subscription.subscription_status}`);
+            return res.status(400).json({
+                success: false,
+                message: 'Subscription is not paused and cannot be resumed'
+            });
+        }
+
+        // Check if subscription has expired
+        if (subscription.end_date && new Date(subscription.end_date) < new Date()) {
+            console.log(`Subscription ${id} has expired`);
+            return res.status(400).json({
+                success: false,
+                message: 'Subscription has expired and cannot be resumed'
+            });
+        }
+
+        // Update both status fields to ensure consistency
+        const updateData = {
+            status: 'active',
+            subscription_status: 'active',
+            updated_at: new Date()
+        };
+
+        const [updateCount] = await Subscription.update(updateData, {
+            where: { id }
+        });
+
+        console.log(`Updated ${updateCount} subscription(s) to active status`);
+
+        if (updateCount === 0) {
+            console.log(`Failed to update subscription ${id}`);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to update subscription status'
+            });
+        }
+
         res.json({
             success: true,
-            message: 'Subscription resumed successfully'
+            message: 'Subscription resumed successfully',
+            subscription: {
+                id: subscription.id,
+                status: 'active',
+                subscription_status: 'active'
+            }
         });
     } catch (error) {
         console.error('Error resuming subscription:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({
+            success: false,
+            error: 'Internal server error',
+            details: error.message
+        });
     }
 });
 

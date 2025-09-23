@@ -258,4 +258,62 @@ router.get('/api/subscriptions/summary/:username', cacheMiddleware.cacheUserData
     }
 });
 
+// POST route to create a new subscription
+router.post('/subscriptions', async (req, res) => {
+    try {
+        const {
+            username,
+            subscription_type,
+            duration,
+            amount,
+            address,
+            building_name,
+            flat_number,
+            payment_id
+        } = req.body;
+
+        // Validate required fields
+        if (!username || !subscription_type || !duration || !amount || !payment_id) {
+            return res.status(400).json({ code: 1000, error: 'Missing required subscription fields' });
+        }
+
+        // Check if user exists
+        const userResult = await db.query('SELECT id FROM users WHERE username = ?', [username]);
+        if (!userResult || userResult.length === 0) {
+            return res.status(404).json({ code: 1001, error: 'User account not found' });
+        }
+        const userId = userResult[0].id;
+
+        // Check for existing active subscription of the same type
+        const existingSub = await db.query(
+            'SELECT id FROM subscriptions WHERE user_id = ? AND subscription_type = ? AND status = ?',
+            [userId, subscription_type, 'active']
+        );
+        if (existingSub && existingSub.length > 0) {
+            return res.status(400).json({
+                code: 1002,
+                error: 'Active subscription of this type already exists',
+                details: 'You already have an active subscription of this type. You can subscribe again after your current subscription ends.'
+            });
+        }
+
+        // Insert new subscription
+        const insertResult = await db.query(
+            `INSERT INTO subscriptions
+            (user_id, subscription_type, duration, amount, address, building_name, flat_number, payment_id, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`,
+            [userId, subscription_type, duration, amount, address, building_name, flat_number, payment_id]
+        );
+
+        if (!insertResult || !insertResult.insertId) {
+            return res.status(500).json({ code: 1003, error: 'Failed to create subscription' });
+        }
+
+        res.json({ id: insertResult.insertId, message: 'Subscription created successfully' });
+    } catch (error) {
+        console.error('Error creating subscription:', error);
+        res.status(500).json({ code: 1004, error: 'Internal server error' });
+    }
+});
+
 module.exports = router;
