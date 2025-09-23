@@ -5,10 +5,10 @@ document.getElementById('loginForm').addEventListener('submit', async e => {
     const errorDiv = document.getElementById('errorMessage');
 
     try {
-        // Use deployed backend URL for production
+        // Use the same domain as the current page for API calls
         const API_BASE_URL = window.location.hostname === 'localhost'
             ? 'http://localhost:3001'
-            : 'https://milk-delivery-backend.onrender.com';
+            : window.location.origin;
 
         const response = await fetch(`${API_BASE_URL}/api/admin/login`, {
             method: 'POST',
