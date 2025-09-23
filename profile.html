@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Profile - Fresh & Organic Milk</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="profile.css" />
+</head>
+<body>
+  <header>
+    <img src="images/logo.png" alt="Fresh & Organic Milk Logo" class="logo" />
+    <h1>Fresh & Organic Milk</h1>
+  </header>
+
+  <main class="profile-container">
+    <div class="profile-picture" id="profilePicture" aria-label="User Profile Picture">
+      <span id="profileInitials">U</span>
+    </div>
+
+    <section class="user-info" aria-label="User Information">
+      <h2 class="section-title">User Information</h2>
+      <p><strong>Name:</strong> <span id="userName">User Name</span></p>
+      <p><strong>Email:</strong> <span id="userEmail">user@example.com</span></p>
+      <p>
+        <strong>Address:</strong>
+        <span id="userAddress">No address available</span>
+      </p>
+      <form id="editAddressForm" class="hidden">
+        <label for="editStreet" class="field-label">Street</label>
+        <input type="text" id="editStreet" name="editStreet" placeholder="Street" />
+        <label for="editCity" class="field-label">City</label>
+        <input type="text" id="editCity" name="editCity" placeholder="City" />
+        <label for="editState" class="field-label">State</label>
+        <input type="text" id="editState" name="editState" placeholder="State" />
+        <label for="editZip" class="field-label">Zip Code</label>
+        <input type="text" id="editZip" name="editZip" placeholder="Zip Code" />
+        <div class="button-group mt-1">
+          <button type="button" id="saveAddressBtn">Save</button>
+          <button type="button" id="cancelEditAddressBtn" class="cancel-btn">Cancel</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="subscription-section" aria-label="Subscription Status">
+      <h2 class="section-title">Subscription Status</h2>
+      <div id="subscriptionDetails">
+        <p><strong>Status:</strong> <span id="subscriptionStatus">No active subscription</span></p>
+        <p id="subscriptionType" class="hidden"><strong>Type:</strong> <span></span></p>
+        <p id="subscriptionDuration" class="hidden"><strong>Duration:</strong> <span></span></p>
+        <p id="subscriptionStart" class="hidden"><strong>Started:</strong> <span></span></p>
+        <p id="subscriptionEnd" class="hidden"><span></span></p>
+        <p id="remainingDays" class="hidden">
+          <strong>Remaining Days:</strong>
+          <span class="remaining-days-badge"></span>
+        </p>
+      </div>
+      <div class="button-group mt-1">
+        <button id="pauseSubscriptionBtn" class="manage-subscription-btn hidden">Pause Subscription</button>
+        <button id="resumeSubscriptionBtn" class="manage-subscription-btn hidden">Resume Subscription</button>
+        <button id="subscribeNowBtn" class="manage-subscription-btn hidden">Subscribe Now</button>
+        <a href="manage-subscription.html" class="manage-subscription-btn hidden">Manage Subscriptions</a>
+      </div>
+    </section>
+
+    <div class="centered mt-1">
+      <button id="logoutBtn" class="logout-btn">Logout</button>
+    </div>
+  </main>
+
+  <!-- Confirmation Modal for Pause -->
+  <div id="pauseConfirmationModal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <h3 id="modalTitle">Confirm Pause</h3>
+      <p id="modalMessage">Are you sure you want to pause your subscription?</p>
+      <div class="modal-actions">
+        <button id="confirmPauseBtn" class="action-btn confirm-btn">Confirm</button>
+        <button id="cancelPauseBtn" class="action-btn cancel-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <nav class="bottom-nav">
+      <a href="index.html" class="nav-item">Home</a>
+      <a href="#" class="nav-item">Your Orders</a>
+      <a href="#" class="nav-item">Offers</a>
+      <a href="subscription.html" class="nav-item">Subscription</a>
+      <a href="profile.html" class="nav-item active">Profile</a>
+    </nav>
+  </footer>
+
+  <script src="profile.js"></script>
+</body>
+</html>

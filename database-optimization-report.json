@@ -1,0 +1,268 @@
+{
+  "timestamp": "2025-08-16T06:52:03.021Z",
+  "analysis": {
+    "currentIndexes": 10,
+    "tableSizes": [
+      {
+        "TABLE_NAME": "users",
+        "TABLE_ROWS": 8,
+        "Size_MB": "0.05",
+        "Data_Size_MB": "0.02",
+        "Index_Size_MB": "0.03"
+      },
+      {
+        "TABLE_NAME": "subscription_status_history",
+        "TABLE_ROWS": 31,
+        "Size_MB": "0.03",
+        "Data_Size_MB": "0.02",
+        "Index_Size_MB": "0.02"
+      },
+      {
+        "TABLE_NAME": "subscriptions",
+        "TABLE_ROWS": 17,
+        "Size_MB": "0.03",
+        "Data_Size_MB": "0.02",
+        "Index_Size_MB": "0.02"
+      },
+      {
+        "TABLE_NAME": "subscription_errors",
+        "TABLE_ROWS": 3,
+        "Size_MB": "0.02",
+        "Data_Size_MB": "0.02",
+        "Index_Size_MB": "0.00"
+      },
+      {
+        "TABLE_NAME": "admin_dashboard_summary",
+        "TABLE_ROWS": null,
+        "Size_MB": null,
+        "Data_Size_MB": null,
+        "Index_Size_MB": null
+      },
+      {
+        "TABLE_NAME": "user_dashboard_stats",
+        "TABLE_ROWS": null,
+        "Size_MB": null,
+        "Data_Size_MB": null,
+        "Index_Size_MB": null
+      }
+    ],
+    "slowQueries": []
+  },
+  "recommendations": {
+    "create": [
+      {
+        "table": "users",
+        "index": "idx_users_email_active",
+        "columns": [
+          "email",
+          "is_active"
+        ],
+        "type": "BTREE"
+      },
+      {
+        "table": "users",
+        "index": "idx_users_phone_active",
+        "columns": [
+          "phone",
+          "is_active"
+        ],
+        "type": "BTREE"
+      },
+      {
+        "table": "users",
+        "index": "idx_users_created_at",
+        "columns": [
+          "created_at"
+        ],
+        "type": "BTREE"
+      },
+      {
+        "table": "subscriptions",
+        "index": "idx_subscriptions_user_status",
+        "columns": [
+          "user_id",
+          "status"
+        ],
+        "type": "BTREE"
+      },
+      {
+        "table": "subscriptions",
+        "index": "idx_subscriptions_product_status",
+        "columns": [
+          "product_id",
+          "status"
+        ],
+        "type": "BTREE"
+      },
+      {
+        "table": "subscriptions",
+        "index": "idx_subscriptions_end_date",
+        "columns": [
+          "end_date"
+        ],
+        "type": "BTREE"
+      },
+      {
+        "table": "subscriptions",
+        "index": "idx_subscriptions_next_delivery",
+        "columns": [
+          "next_delivery_date",
+          "status"
+        ],
+        "type": "BTREE"
+      },
+      {
+        "table": "products",
+        "index": "idx_products_category_active",
+        "columns": [
+          "category",
+          "is_active"
+        ],
+        "type": "BTREE"
+      },
+      {
+        "table": "products",
+        "index": "idx_products_price_range",
+        "columns": [
+          "price"
+        ],
+        "type": "BTREE"
+      },
+      {
+        "table": "addresses",
+        "index": "idx_addresses_user_primary",
+        "columns": [
+          "user_id",
+          "is_primary"
+        ],
+        "type": "BTREE"
+      },
+      {
+        "table": "payments",
+        "index": "idx_payments_subscription_status",
+        "columns": [
+          "subscription_id",
+          "status"
+        ],
+        "type": "BTREE"
+      },
+      {
+        "table": "payments",
+        "index": "idx_payments_user_date",
+        "columns": [
+          "user_id",
+          "created_at"
+        ],
+        "type": "BTREE"
+      },
+      {
+        "table": "orders",
+        "index": "idx_orders_user_status",
+        "columns": [
+          "user_id",
+          "status"
+        ],
+        "type": "BTREE"
+      },
+      {
+        "table": "orders",
+        "index": "idx_orders_date_status",
+        "columns": [
+          "order_date",
+          "status"
+        ],
+        "type": "BTREE"
+      }
+    ],
+    "drop": [],
+    "modify": []
+  },
+  "implementation": {
+    "created": [],
+    "skipped": [
+      "users.idx_users_created_at"
+    ],
+    "errors": [
+      {
+        "index": "users.idx_users_email_active",
+        "error": "Key column 'is_active' doesn't exist in table"
+      },
+      {
+        "index": "users.idx_users_phone_active",
+        "error": "Key column 'is_active' doesn't exist in table"
+      },
+      {
+        "index": "subscriptions.idx_subscriptions_user_status",
+        "error": "Key column 'user_id' doesn't exist in table"
+      },
+      {
+        "index": "subscriptions.idx_subscriptions_product_status",
+        "error": "Key column 'product_id' doesn't exist in table"
+      },
+      {
+        "index": "subscriptions.idx_subscriptions_end_date",
+        "error": "Key column 'end_date' doesn't exist in table"
+      },
+      {
+        "index": "subscriptions.idx_subscriptions_next_delivery",
+        "error": "Key column 'next_delivery_date' doesn't exist in table"
+      },
+      {
+        "index": "products.idx_products_category_active",
+        "error": "Table 'milk_delivery.products' doesn't exist"
+      },
+      {
+        "index": "products.idx_products_price_range",
+        "error": "Table 'milk_delivery.products' doesn't exist"
+      },
+      {
+        "index": "addresses.idx_addresses_user_primary",
+        "error": "Table 'milk_delivery.addresses' doesn't exist"
+      },
+      {
+        "index": "payments.idx_payments_subscription_status",
+        "error": "Table 'milk_delivery.payments' doesn't exist"
+      },
+      {
+        "index": "payments.idx_payments_user_date",
+        "error": "Table 'milk_delivery.payments' doesn't exist"
+      },
+      {
+        "index": "orders.idx_orders_user_status",
+        "error": "Table 'milk_delivery.orders' doesn't exist"
+      },
+      {
+        "index": "orders.idx_orders_date_status",
+        "error": "Table 'milk_delivery.orders' doesn't exist"
+      }
+    ]
+  },
+  "performance": [
+    {
+      "query": "User Profile Query",
+      "error": "Table 'milk_delivery.addresses' doesn't exist",
+      "status": "error"
+    },
+    {
+      "query": "Active Subscriptions",
+      "error": "Unknown column 'user_id' in 'where clause'",
+      "status": "error"
+    },
+    {
+      "query": "Product Search",
+      "error": "Table 'milk_delivery.products' doesn't exist",
+      "status": "error"
+    },
+    {
+      "query": "Payment History",
+      "error": "Table 'milk_delivery.payments' doesn't exist",
+      "status": "error"
+    }
+  ],
+  "summary": {
+    "totalIndexesCreated": 0,
+    "totalIndexesSkipped": 1,
+    "totalErrors": 13,
+    "averageQueryTime": 0
+  }
+}

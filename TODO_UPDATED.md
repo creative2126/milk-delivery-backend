@@ -1,0 +1,3 @@
+- [x] Update profile endpoint in apiRoutes.js to query subscriptions by user_id instead of username
+- [x] Remove outdated subscription fields from user response object
+- Test the updated endpoint

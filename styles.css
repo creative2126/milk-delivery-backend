@@ -1,0 +1,394 @@
+/* Reset */
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #f9f9f9;
+  color: #333;
+}
+
+/* Header */
+header {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  background: #4CAF50;
+  color: white;
+}
+header img {
+  height: 40px;
+  margin-right: 10px;
+}
+
+/* Hero Section */
+.hero {
+  text-align: center;
+  padding: 40px 20px;
+  background: #e8f5e9;
+}
+.hero h2 {
+  font-size: 2rem;
+  margin-bottom: 10px;
+}
+.hero p {
+  margin-bottom: 20px;
+  color: #555;
+}
+.btn {
+  padding: 10px 20px;
+  margin: 5px;
+  border-radius: 5px;
+  text-decoration: none;
+  font-weight: bold;
+  display: inline-block;
+}
+.btn-primary {
+  background: #4CAF50;
+  color: white;
+}
+.btn-secondary {
+  background: #fff;
+  border: 1px solid #4CAF50;
+  color: #4CAF50;
+}
+
+/* Features */
+.features {
+  padding: 20px;
+}
+.section-title {
+  text-align: center;
+  margin-bottom: 20px;
+}
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 20px;
+}
+.feature {
+  text-align: center;
+  padding: 10px;
+}
+.feature i {
+  font-size: 2rem;
+  color: #4CAF50;
+}
+
+/* Products */
+.products {
+  padding: 20px;
+}
+.products-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+.product-card {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  overflow: hidden;
+}
+.product-card img {
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+}
+.product-info {
+  padding: 10px;
+}
+.product-price {
+  color: #4CAF50;
+  font-weight: bold;
+}
+.add-to-cart {
+  background: #4CAF50;
+  color: white;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.add-to-cart:hover {
+  background: #45a049;
+}
+
+/* Bottom Navigation */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-around;
+  background: #fff;
+  border-top: 1px solid #ddd;
+  padding: 10px 0;
+}
+.bottom-nav a {
+  text-align: center;
+  flex: 1;
+  color: #555;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+.bottom-nav a i {
+  display: block;
+  font-size: 1.2rem;
+}
+.bottom-nav a.active,
+.bottom-nav a:hover {
+  color: #4CAF50;
+}
+
+/* General Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Body */
+body {
+  font-family: 'Poppins', sans-serif;
+  background-color: #f9faf9;
+  color: #2d3748;
+  line-height: 1.6;
+}
+
+/* Header */
+header {
+  background-color: #38a169;
+  color: white;
+  padding: 1rem 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+header img.logo {
+  height: 40px;
+}
+
+header h1 {
+  font-size: 1.5rem;
+  margin: 0;
+}
+
+/* Profile Container */
+.profile-container {
+  max-width: 800px;
+  margin: 2rem auto;
+  background: white;
+  border-radius: 8px;
+  padding: 2rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* Profile Picture */
+.profile-picture {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background-color: #c6f6d5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  color: #276749;
+  margin-bottom: 1rem;
+}
+
+/* Section Titles */
+h2.section-title {
+  font-size: 1.25rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 2px solid #38a169;
+  padding-bottom: 0.25rem;
+}
+
+/* User Info */
+.user-info, 
+.address-section, 
+.subscription-section {
+  margin-bottom: 2rem;
+}
+
+/* Form Fields */
+.field-label {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  display: block;
+}
+
+.field-value, 
+input[type="text"] {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  font-size: 1rem;
+  color: #2d3748;
+}
+
+input[type="text"]:disabled {
+  background-color: #edf2f7;
+  color: #4a5568;
+}
+
+/* Buttons */
+.button-group {
+  display: flex;
+  gap: 1rem;
+}
+
+button {
+  background-color: #38a169;
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+button:hover {
+  background-color: #2f855a;
+}
+
+button.cancel-btn {
+  background-color: #a0aec0;
+}
+
+button.cancel-btn:hover {
+  background-color: #718096;
+}
+
+.manage-subscription-btn {
+  background-color: #3182ce;
+}
+
+.manage-subscription-btn:hover {
+  background-color: #2b6cb0;
+}
+
+/* Subscription Remaining Days Badge */
+.remaining-days-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-weight: bold;
+  font-size: 0.9rem;
+}
+
+.remaining-days-high {
+  background-color: #c6f6d5;
+  color: #276749;
+}
+
+.remaining-days-medium {
+  background-color: #fef5e7;
+  color: #c05621;
+}
+
+.remaining-days-low {
+  background-color: #fed7d7;
+  color: #c53030;
+}
+
+.remaining-days-expired {
+  background-color: #e2e8f0;
+  color: #4a5568;
+}
+
+/* Modal Overlay */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  max-width: 400px;
+  width: 90%;
+  text-align: center;
+}
+
+.modal-content h3 {
+  margin-top: 0;
+  color: #2d3748;
+}
+
+.modal-content p {
+  margin: 1rem 0;
+  color: #4a5568;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.action-btn {
+  padding: 0.5rem 1.5rem;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: opacity 0.3s ease;
+}
+
+.action-btn:hover {
+  opacity: 0.9;
+}
+
+/* Footer Navigation */
+footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: #f8f9fa;
+  border-top: 1px solid #ddd;
+}
+
+.bottom-nav {
+  display: flex;
+  justify-content: space-around;
+  padding: 0.75rem 0;
+}
+
+.bottom-nav .nav-item {
+  text-decoration: none;
+  color: #2d3748;
+  font-weight: 500;
+}
+
+.bottom-nav .nav-item.active {
+  color: #38a169;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .profile-container {
+    margin: 1rem;
+    padding: 1rem;
+  }
+  header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
