@@ -33,7 +33,7 @@ class DatabaseManager {
                 database: process.env.DB_NAME,
                 port: parseInt(process.env.DB_PORT, 10),
                 waitForConnections: true,
-                connectionLimit: 25,
+                connectionLimit: 5,
                 queueLimit: 0,
                 connectTimeout: 60000,
                 enableKeepAlive: true,

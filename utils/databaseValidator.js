@@ -3,24 +3,18 @@ const { pool } = require('../db');
 
 class DatabaseValidator {
   static requiredTables = [
-    'users', 'products', 'subscriptions', 'cart', 'addresses',
-    'deliveries', 'orders', 'notifications'
+    'users'
   ];
 
   static requiredColumns = {
     users: [
       'id', 'username', 'email', 'password', 'name', 'phone',
-      'address', 'city', 'state', 'zip_code', 'landmark',
-      'created_at', 'updated_at'
-    ],
-    subscriptions: [
-      'id', 'user_id', 'product_name', 'quantity', 'price',
-      'frequency', 'start_date', 'end_date', 'status',
-      'created_at', 'updated_at'
-    ],
-    products: [
-      'id', 'name', 'description', 'price', 'category',
-      'image_url', 'stock_quantity', 'is_active',
+      'street', 'city', 'state', 'zip', 'latitude', 'longitude',
+      'subscription_type', 'subscription_duration', 'subscription_status',
+      'subscription_start_date', 'subscription_end_date', 'subscription_address',
+      'subscription_building_name', 'subscription_flat_number', 'subscription_amount',
+      'subscription_payment_id', 'subscription_created_at', 'subscription_updated_at',
+      'paused_at', 'resumed_at', 'total_paused_days',
       'created_at', 'updated_at'
     ]
   };
@@ -84,59 +78,39 @@ class DatabaseValidator {
     try {
       connection = await pool.getConnection();
 
-      // Create users table if missing
-      await connection.execute(`
-        CREATE TABLE IF NOT EXISTS users (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          username VARCHAR(50) UNIQUE NOT NULL,
-          email VARCHAR(100) UNIQUE NOT NULL,
-          password VARCHAR(255) NOT NULL,
-          name VARCHAR(100),
-          phone VARCHAR(20),
-          address VARCHAR(255),
-          city VARCHAR(100),
-          state VARCHAR(100),
-          zip_code VARCHAR(20),
-          landmark VARCHAR(255),
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        )
-      `);
-
-      // Create subscriptions table if missing
-      await connection.execute(`
-        CREATE TABLE IF NOT EXISTS subscriptions (
-          id INT AUTO_INCREMENT PRIMARY KEY,
-          user_id INT NOT NULL,
-          product_name VARCHAR(255) NOT NULL,
-          quantity INT NOT NULL DEFAULT 1,
-          price DECIMAL(10,2) NOT NULL,
-          frequency ENUM('daily', 'weekly', 'monthly') DEFAULT 'daily',
-          start_date DATE NOT NULL,
-          end_date DATE,
-          status ENUM('active', 'paused', 'cancelled') DEFAULT 'active',
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-      `);
-
-      // ✅ Ensure missing columns in users table
+      // Get existing columns first
       const [userCols] = await connection.execute(
         `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'`
       );
       const existingUserCols = userCols.map(c => c.COLUMN_NAME);
 
-      const addUserCols = [
-        { name: 'address', def: 'VARCHAR(255)' },
+      // Add all required user columns if missing
+      const userColumnsToAdd = [
+        { name: 'street', def: 'VARCHAR(255)' },
         { name: 'city', def: 'VARCHAR(100)' },
         { name: 'state', def: 'VARCHAR(100)' },
-        { name: 'zip_code', def: 'VARCHAR(20)' },
-        { name: 'landmark', def: 'VARCHAR(255)' }
+        { name: 'zip', def: 'VARCHAR(20)' },
+        { name: 'latitude', def: 'DECIMAL(10, 8)' },
+        { name: 'longitude', def: 'DECIMAL(11, 8)' },
+        { name: 'subscription_type', def: 'VARCHAR(50)' },
+        { name: 'subscription_duration', def: 'VARCHAR(20)' },
+        { name: 'subscription_status', def: "ENUM('active', 'paused', 'cancelled', 'expired') DEFAULT 'active'" },
+        { name: 'subscription_start_date', def: 'DATE' },
+        { name: 'subscription_end_date', def: 'DATE' },
+        { name: 'subscription_address', def: 'VARCHAR(255)' },
+        { name: 'subscription_building_name', def: 'VARCHAR(100)' },
+        { name: 'subscription_flat_number', def: 'VARCHAR(20)' },
+        { name: 'subscription_amount', def: 'DECIMAL(10, 2)' },
+        { name: 'subscription_payment_id', def: 'VARCHAR(100)' },
+        { name: 'subscription_created_at', def: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP' },
+        { name: 'subscription_updated_at', def: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP' },
+        { name: 'paused_at', def: 'TIMESTAMP NULL' },
+        { name: 'resumed_at', def: 'TIMESTAMP NULL' },
+        { name: 'total_paused_days', def: 'INT DEFAULT 0' }
       ];
 
-      for (const col of addUserCols) {
+      for (const col of userColumnsToAdd) {
         if (!existingUserCols.includes(col.name)) {
           await connection.execute(
             `ALTER TABLE users ADD COLUMN ${col.name} ${col.def}`
@@ -145,19 +119,9 @@ class DatabaseValidator {
         }
       }
 
-      // ✅ Ensure missing product_name in subscriptions
-      const [subCols] = await connection.execute(
-        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'subscriptions'`
-      );
-      const existingSubCols = subCols.map(c => c.COLUMN_NAME);
-
-      if (!existingSubCols.includes('product_name')) {
-        await connection.execute(
-          `ALTER TABLE subscriptions ADD COLUMN product_name VARCHAR(255)`
-        );
-        console.log(`✅ Added missing column 'product_name' to subscriptions`);
-      }
+      // Drop subscriptions table if it exists (since we're using merged schema)
+      await connection.execute(`DROP TABLE IF EXISTS subscriptions`);
+      console.log('✅ Dropped legacy subscriptions table');
 
       console.log('✅ Database schema validated and updated successfully');
     } catch (error) {

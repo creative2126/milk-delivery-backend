@@ -16,7 +16,17 @@ router.get('/subscriptions', async (req, res) => {
             WHERE subscription_status IS NOT NULL
             ORDER BY subscription_created_at DESC
         `);
-        res.json(rows);
+        res.json(rows.map(row => ({
+            id: row.id,
+            type: row.subscription_type,
+            duration: row.subscription_duration,
+            amount: row.subscription_amount,
+            status: row.subscription_status,
+            start_date: row.subscription_start_date,
+            end_date: row.subscription_end_date,
+            created_at: row.subscription_created_at,
+            updated_at: row.subscription_updated_at
+        })));
     } catch (error) {
         console.error('Error fetching subscriptions:', error);
         res.status(500).json({ error: 'Failed to fetch subscriptions' });
@@ -38,14 +48,23 @@ router.get('/subscriptions/:id', async (req, res) => {
             return res.status(404).json({ error: 'Subscription not found' });
         }
 
-        res.json(rows[0]);
+        res.json({
+            id: rows[0].id,
+            type: rows[0].subscription_type,
+            duration: rows[0].subscription_duration,
+            amount: rows[0].subscription_amount,
+            status: rows[0].subscription_status,
+            start_date: rows[0].subscription_start_date,
+            end_date: rows[0].subscription_end_date,
+            created_at: rows[0].subscription_created_at,
+            updated_at: rows[0].subscription_updated_at
+        });
     } catch (error) {
         console.error('Error fetching subscription:', error);
         res.status(500).json({ error: 'Failed to fetch subscription' });
     }
 });
 
-// Get subscriptions by username (from users table)
 router.get('/users/:username/subscriptions', async (req, res) => {
     try {
         const [rows] = await db.query(`
@@ -57,7 +76,22 @@ router.get('/users/:username/subscriptions', async (req, res) => {
             ORDER BY subscription_created_at DESC
         `, [req.params.username]);
 
-        res.json(rows);
+        if (!rows || rows.length === 0) {
+            console.error('No subscriptions found for user:', req.params.username);
+            return res.status(404).json({ error: 'No subscriptions found for user' });
+        }
+
+        res.json(rows.map(row => ({
+            id: row.id,
+            type: row.subscription_type,
+            duration: row.subscription_duration,
+            amount: row.subscription_amount,
+            status: row.subscription_status,
+            start_date: row.subscription_start_date,
+            end_date: row.subscription_end_date,
+            created_at: row.subscription_created_at,
+            updated_at: row.subscription_updated_at
+        })));
     } catch (error) {
         console.error('Error fetching user subscriptions:', error);
         res.status(500).json({ error: 'Failed to fetch user subscriptions' });
@@ -67,30 +101,75 @@ router.get('/users/:username/subscriptions', async (req, res) => {
 // Get remaining subscription for username (most recent active/inactive/expired)
 router.get('/remaining/:username', async (req, res) => {
     try {
-        const [rows] = await db.query(`
+        console.log('=== FETCHING REMAINING SUBSCRIPTION ===');
+        console.log('Username:', req.params.username);
+        console.log('Request method:', req.method);
+        console.log('Request path:', req.path);
+
+        const query = `
             SELECT id, username, subscription_type, subscription_duration, subscription_amount,
                    subscription_status, subscription_start_date, subscription_end_date,
                    subscription_created_at, subscription_updated_at,
                    DATEDIFF(subscription_end_date, NOW()) as remaining_days
             FROM users
-            WHERE username = ? AND subscription_status IN ('active', 'inactive', 'paused', 'expired')
+            WHERE (username = ? OR email = ? OR name = ?) AND subscription_status IN ('active', 'inactive', 'paused', 'expired')
             ORDER BY subscription_created_at DESC
             LIMIT 1
-        `, [req.params.username]);
+        `;
+
+        console.log('Executing query:', query);
+        console.log('Query parameters:', [req.params.username, req.params.username, req.params.username]);
+
+        const rows = await db.query(query, [req.params.username, req.params.username, req.params.username]);
+        console.log('=== DB QUERY RESULT ===');
+        console.log('Rows type:', typeof rows);
+        console.log('Rows:', rows);
+        console.log('Is rows array?', Array.isArray(rows));
+        console.log('Rows length:', rows ? rows.length : 'undefined');
 
         if (!rows || rows.length === 0) {
+            console.log('❌ No subscription found for user:', req.params.username);
+            console.log('Returning null subscription response');
             return res.json({ subscription: null, hasActiveSubscription: false });
         }
 
         const subscription = rows[0];
-        const hasActiveSubscription = subscription.subscription_status === 'active' && subscription.remaining_days >= 0;
+        console.log('✅ Found subscription:', subscription);
+        console.log('Subscription details:');
+        console.log('  - ID:', subscription.id);
+        console.log('  - Username:', subscription.username);
+        console.log('  - Status:', subscription.subscription_status);
+        console.log('  - End date:', subscription.subscription_end_date);
+        console.log('  - Remaining days:', subscription.remaining_days);
 
-        res.json({
-            subscription: subscription,
+        const hasActiveSubscription = subscription.subscription_status === 'active' && subscription.remaining_days >= 0;
+        console.log('Has active subscription:', hasActiveSubscription);
+
+        const responseData = {
+            subscription: {
+                id: subscription.id,
+                subscription_type: subscription.subscription_type,
+                subscription_duration: subscription.subscription_duration,
+                subscription_amount: subscription.subscription_amount,
+                subscription_status: subscription.subscription_status,
+                subscription_start_date: subscription.subscription_start_date,
+                subscription_end_date: subscription.subscription_end_date,
+                remaining_days: subscription.remaining_days
+            },
             hasActiveSubscription: hasActiveSubscription
-        });
+        };
+
+        console.log('=== RESPONSE DATA ===');
+        console.log(JSON.stringify(responseData, null, 2));
+        console.log('Sending response...');
+
+        res.json(responseData);
+        console.log('Response sent successfully');
     } catch (error) {
-        console.error('Error fetching remaining subscription:', error);
+        console.error('❌ ERROR fetching remaining subscription:', error);
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+        console.error('Error code:', error.code);
         res.status(500).json({ error: 'Failed to fetch remaining subscription' });
     }
 });
@@ -106,6 +185,7 @@ router.post('/', [
     body('flat_number').isLength({ min: 1 }).withMessage('Flat number is required'),
     body('payment_id').isLength({ min: 1 }).withMessage('Payment ID is required')
 ], async (req, res) => {
+    console.log('POST / route called - subscription creation');
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
         console.log('Validation errors:', errors.array());
@@ -251,7 +331,11 @@ router.post('/', [
         // Calculate subscription dates
         const startDate = new Date().toISOString().split('T')[0];
         const endDate = new Date();
-        if (duration === 'daily') {
+        if (duration === '6days') {
+            endDate.setDate(endDate.getDate() + 7); // 6 days + 1 free
+        } else if (duration === '15days') {
+            endDate.setDate(endDate.getDate() + 17); // 15 days + 2 free
+        } else if (duration === 'daily') {
             endDate.setDate(endDate.getDate() + 1);
         } else if (duration === 'weekly') {
             endDate.setDate(endDate.getDate() + 7);
@@ -259,6 +343,21 @@ router.post('/', [
             endDate.setMonth(endDate.getMonth() + 1);
         }
         const endDateStr = endDate.toISOString().split('T')[0];
+
+        console.log('Calculated subscription endDateStr:', endDateStr);
+        console.log('Updating user subscription with:', {
+            subscription_type,
+            duration,
+            amount,
+            address,
+            building_name,
+            flat_number,
+            payment_id,
+            status: 'active',
+            startDate,
+            endDateStr,
+            userId
+        });
 
         // Update users table with subscription details
         const updateResult = await db.query(`
@@ -293,16 +392,39 @@ router.post('/', [
         console.log('Subscription created for user ID:', userId);
 
         // Get the updated user data
-        const [userData] = await db.query(`
+        const userDataResult = await db.query(`
             SELECT id, username, subscription_type, subscription_duration, subscription_amount,
                    subscription_status, subscription_start_date, subscription_end_date,
                    subscription_created_at, subscription_updated_at
             FROM users WHERE id = ?
         `, [userId]);
 
+        // Handle different database response formats
+        let userData;
+        if (Array.isArray(userDataResult) && Array.isArray(userDataResult[0])) {
+            userData = userDataResult[0];
+        } else if (Array.isArray(userDataResult)) {
+            userData = userDataResult;
+        } else {
+            userData = [userDataResult];
+        }
+
+        if (!userData || userData.length === 0) {
+            console.error('Failed to retrieve updated user data for user ID:', userId);
+            return res.status(500).json({ error: 'Failed to retrieve subscription data', code: 1009 });
+        }
+
         res.status(201).json({
             id: userId,
-            ...userData[0]
+            username: userData[0].username,
+            subscription_type: userData[0].subscription_type,
+            subscription_duration: userData[0].subscription_duration,
+            subscription_amount: userData[0].subscription_amount,
+            subscription_status: userData[0].subscription_status,
+            subscription_start_date: userData[0].subscription_start_date,
+            subscription_end_date: userData[0].subscription_end_date,
+            subscription_created_at: userData[0].subscription_created_at,
+            subscription_updated_at: userData[0].subscription_updated_at
         });
     } catch (error) {
         console.error('Error creating subscription:', error);
@@ -466,7 +588,11 @@ router.post('/subscriptions/', [
         // Calculate subscription dates
         const startDate = new Date().toISOString().split('T')[0];
         const endDate = new Date();
-        if (duration === 'daily') {
+        if (duration === '6days') {
+            endDate.setDate(endDate.getDate() + 7); // 6 days + 1 free
+        } else if (duration === '15days') {
+            endDate.setDate(endDate.getDate() + 17); // 15 days + 2 free
+        } else if (duration === 'daily') {
             endDate.setDate(endDate.getDate() + 1);
         } else if (duration === 'weekly') {
             endDate.setDate(endDate.getDate() + 7);
@@ -508,16 +634,39 @@ router.post('/subscriptions/', [
         console.log('Subscription created for user ID:', userId);
 
         // Get the updated user data
-        const [userData] = await db.query(`
+        const userDataResult = await db.query(`
             SELECT id, username, subscription_type, subscription_duration, subscription_amount,
                    subscription_status, subscription_start_date, subscription_end_date,
                    subscription_created_at, subscription_updated_at
             FROM users WHERE id = ?
         `, [userId]);
 
+        // Handle different database response formats
+        let userData;
+        if (Array.isArray(userDataResult) && Array.isArray(userDataResult[0])) {
+            userData = userDataResult[0];
+        } else if (Array.isArray(userDataResult)) {
+            userData = userDataResult;
+        } else {
+            userData = [userDataResult];
+        }
+
+        if (!userData || userData.length === 0) {
+            console.error('Failed to retrieve updated user data for user ID:', userId);
+            return res.status(500).json({ error: 'Failed to retrieve subscription data', code: 1009 });
+        }
+
         res.status(201).json({
             id: userId,
-            ...userData[0]
+            username: userData[0].username,
+            subscription_type: userData[0].subscription_type,
+            subscription_duration: userData[0].subscription_duration,
+            subscription_amount: userData[0].subscription_amount,
+            subscription_status: userData[0].subscription_status,
+            subscription_start_date: userData[0].subscription_start_date,
+            subscription_end_date: userData[0].subscription_end_date,
+            subscription_created_at: userData[0].subscription_created_at,
+            subscription_updated_at: userData[0].subscription_updated_at
         });
     } catch (error) {
         console.error('Error creating subscription:', error);

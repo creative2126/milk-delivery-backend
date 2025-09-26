@@ -159,14 +159,14 @@ router.post('/verify-payment', async (req, res) => {
     // Calculate amount based on subscription type and duration
     const amount = calculateAmount(subscription_type, duration);
 
-    // Check for existing active subscriptions
+    // Check for existing active subscriptions in users table
     try {
-      const [existingSubscriptions] = await db.execute(
-        'SELECT id FROM subscriptions WHERE username = ? AND subscription_type = ? AND status = "active"',
+      const [existingUser] = await db.execute(
+        'SELECT id FROM users WHERE username = ? AND subscription_type = ? AND subscription_status = "active"',
         [username, subscription_type]
       );
 
-      if (existingSubscriptions.length > 0) {
+      if (existingUser.length > 0) {
         return res.status(400).json({
           success: false,
           message: 'Active subscription already exists for this type'
@@ -176,47 +176,87 @@ router.post('/verify-payment', async (req, res) => {
       console.error('Subscription check error:', checkError);
     }
 
-    // Save subscription to database
+    // Check if user exists
+    const [userRows] = await db.execute('SELECT id FROM users WHERE username = ?', [username]);
+    if (userRows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'User not found. Please register first.'
+      });
+    }
+
+    // Calculate end date based on duration
+    const startDate = new Date();
+    let daysToAdd = 0;
+    if (duration === '6days') daysToAdd = 6;
+    else if (duration === '15days') daysToAdd = 15;
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + daysToAdd);
+
+    // Save subscription to users table
     const subscriptionData = {
       username,
       subscription_type,
-      duration,
-      amount,
-      address,
-      building_name,
-      flat_number,
+      subscription_duration: duration,
+      subscription_status: 'active',
+      subscription_start_date: startDate,
+      subscription_end_date: endDate,
+      subscription_amount: amount,
+      subscription_address: address,
+      subscription_building_name: building_name,
+      subscription_flat_number: flat_number,
+      subscription_payment_id: razorpay_payment_id,
+      subscription_created_at: new Date(),
+      subscription_updated_at: new Date(),
+      paused_at: null,
+      resumed_at: null,
+      total_paused_days: 0,
       latitude: parseFloat(latitude) || 0,
-      longitude: parseFloat(longitude) || 0,
-      payment_id: razorpay_payment_id,
-      status: 'active',
-      created_at: new Date(),
-      updated_at: new Date()
+      longitude: parseFloat(longitude) || 0
     };
 
     try {
-      const [result] = await db.execute(
-        'INSERT INTO subscriptions (username, subscription_type, duration, amount, address, building_name, flat_number, latitude, longitude, payment_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      await db.execute(
+        `UPDATE users SET
+          subscription_type = ?,
+          subscription_duration = ?,
+          subscription_status = ?,
+          subscription_start_date = ?,
+          subscription_end_date = ?,
+          subscription_amount = ?,
+          subscription_address = ?,
+          subscription_building_name = ?,
+          subscription_flat_number = ?,
+          subscription_payment_id = ?,
+          subscription_created_at = ?,
+          subscription_updated_at = ?,
+          paused_at = ?,
+          resumed_at = ?,
+          total_paused_days = ?
+         WHERE username = ?`,
         [
-          subscriptionData.username,
           subscriptionData.subscription_type,
-          subscriptionData.duration,
-          subscriptionData.amount,
-          subscriptionData.address,
-          subscriptionData.building_name,
-          subscriptionData.flat_number,
-          subscriptionData.latitude,
-          subscriptionData.longitude,
-          subscriptionData.payment_id,
-          subscriptionData.status,
-          subscriptionData.created_at,
-          subscriptionData.updated_at
+          subscriptionData.subscription_duration,
+          subscriptionData.subscription_status,
+          subscriptionData.subscription_start_date,
+          subscriptionData.subscription_end_date,
+          subscriptionData.subscription_amount,
+          subscriptionData.subscription_address,
+          subscriptionData.subscription_building_name,
+          subscriptionData.subscription_flat_number,
+          subscriptionData.subscription_payment_id,
+          subscriptionData.subscription_created_at,
+          subscriptionData.subscription_updated_at,
+          subscriptionData.paused_at,
+          subscriptionData.resumed_at,
+          subscriptionData.total_paused_days,
+          username
         ]
       );
 
       res.json({
         success: true,
-        message: 'Payment verified successfully',
-        subscription_id: result.insertId,
+        message: 'Payment verified and subscription saved successfully',
         subscription: subscriptionData
       });
 
@@ -245,21 +285,45 @@ router.get('/verify-payment/status/:payment_id', async (req, res) => {
   try {
     const { payment_id } = req.params;
     
-    const [subscriptions] = await db.execute(
-      'SELECT * FROM subscriptions WHERE payment_id = ?',
+    const [users] = await db.execute(
+      `SELECT 
+        subscription_type, subscription_duration, subscription_status, 
+        subscription_start_date, subscription_end_date, subscription_amount,
+        subscription_address, subscription_building_name, subscription_flat_number,
+        subscription_payment_id, subscription_created_at, subscription_updated_at,
+        paused_at, resumed_at, total_paused_days
+       FROM users WHERE subscription_payment_id = ?`,
       [payment_id]
     );
 
-    if (subscriptions.length === 0) {
+    if (users.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Payment not found'
       });
     }
 
+    const subscription = {
+      type: users[0].subscription_type,
+      duration: users[0].subscription_duration,
+      status: users[0].subscription_status,
+      start_date: users[0].subscription_start_date,
+      end_date: users[0].subscription_end_date,
+      amount: users[0].subscription_amount,
+      address: users[0].subscription_address,
+      building_name: users[0].subscription_building_name,
+      flat_number: users[0].subscription_flat_number,
+      payment_id: users[0].subscription_payment_id,
+      created_at: users[0].subscription_created_at,
+      updated_at: users[0].subscription_updated_at,
+      paused_at: users[0].paused_at,
+      resumed_at: users[0].resumed_at,
+      total_paused_days: users[0].total_paused_days
+    };
+
     res.json({
       success: true,
-      subscription: subscriptions[0]
+      subscription: subscription
     });
 
   } catch (error) {

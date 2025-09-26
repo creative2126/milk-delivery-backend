@@ -1,407 +1,409 @@
 // backend/routes/enhancedSubscriptionRoutes.js
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const EnhancedSubscription = require('../models/EnhancedSubscription');
-const AdvancedAnalytics = require('../models/AdvancedAnalytics');
-const {
-    validateEnhancedSubscription,
-    validateSubscriptionUpdate,
-    validatePauseSubscription,
-    validateResumeSubscription,
-    validateCancelSubscription,
-    validateSkipDelivery,
-    validateAddDelivery,
-    validateGetSubscriptions,
-    handleValidationErrors
-} = require('../middleware/enhancedSubscriptionValidation');
-const { cacheMiddleware, invalidateCache } = require('../middleware/cacheMiddleware');
-const logger = require('../utils/logger');
+const { query } = require("../db"); // ✅ execute not used, so removed
 
-// ✅ Apply performance middleware safely
-const performanceMiddleware = (req, res, next) => next();
-router.use(performanceMiddleware);
+// ✅ Create / Update Subscription
+router.post("/", async (req, res) => {
+  try {
+    const {
+      username,
+      subscription_type,
+      duration,
+      amount,
+      address,
+      building_name,
+      flat_number,
+      payment_id,
+      replace_existing
+    } = req.body;
 
+    if (!username || !subscription_type || !duration) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
 
-// ✅ Helper for async route error handling
-const asyncHandler = (fn) => (req, res, next) =>
-    Promise.resolve(fn(req, res, next)).catch(next);
+    // ✅ Check if user exists
+    const [users] = await query(
+      "SELECT id FROM users WHERE username = ? OR email = ?",
+      [username, username]
+    );
+    if (users.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
 
-// =========================
-// CREATE ENHANCED SUBSCRIPTION
-// =========================
-router.post(
-    '/',
-    validateEnhancedSubscription,
-    handleValidationErrors,
-    asyncHandler(async (req, res) => {
-        const subscriptionData = {
-            ...req.body,
-            status: 'active',
-            createdAt: new Date(),
-            updatedAt: new Date()
-        };
+    const userId = users[0].id;
 
-        const subscription = await EnhancedSubscription.create(subscriptionData);
+    // ✅ Check if user already has an active subscription (unless replacing)
+    if (!replace_existing) {
+      const [activeSubs] = await query(
+        'SELECT id FROM users WHERE id = ? AND subscription_status = "active"',
+        [userId]
+      );
 
-        await AdvancedAnalytics.logEvent('subscription_created', {
-            subscriptionId: subscription.id,
-            userId: subscription.userId,
-            productId: subscription.productId,
-            quantity: subscription.quantity,
-            frequency: subscription.frequency,
-            price: subscription.pricePerUnit * subscription.quantity
+      if (activeSubs && activeSubs.length > 0) {
+        return res.status(400).json({
+          error: "Active subscription exists",
+          message:
+            "User already has an active subscription. Cannot create new subscription until current one expires.",
+          code: 1007
         });
-
-        logger.info(`Enhanced subscription created: ${subscription.id}`);
-
-        res.status(201).json({
-            success: true,
-            message: 'Subscription created successfully',
-            data: subscription
-        });
-    })
-);
-
-// =========================
-// GET ALL SUBSCRIPTIONS (FILTER + PAGINATION)
-// =========================
-router.get(
-    '/',
-    validateGetSubscriptions,
-    handleValidationErrors,
-    (typeof cacheMiddleware === "function" ? cacheMiddleware(300) : (req,res,next)=>next()), // ✅ Safe cache
-    asyncHandler(async (req, res) => {
-        const {
-            page = 1,
-            limit = 10,
-            status,
-            userId,
-            productId,
-            startDate,
-            endDate,
-            frequency,
-            autoRenew,
-            billingCycle,
-            sortBy = 'createdAt',
-            sortOrder = 'DESC'
-        } = req.query;
-
-        const where = {};
-
-        if (status) where.status = status;
-        if (userId) where.userId = userId;
-        if (productId) where.productId = productId;
-        if (frequency) where.frequency = frequency;
-        if (autoRenew !== undefined) where.autoRenew = autoRenew === 'true';
-        if (billingCycle) where.billingCycle = billingCycle;
-
-        if (startDate || endDate) {
-            where.startDate = {};
-            if (startDate) where.startDate[EnhancedSubscription.sequelize.Op.gte] = new Date(startDate);
-            if (endDate) where.startDate[EnhancedSubscription.sequelize.Op.lte] = new Date(endDate);
-        }
-
-        const offset = (page - 1) * limit;
-
-        const { count, rows: subscriptions } = await EnhancedSubscription.findAndCountAll({
-            where,
-            limit: parseInt(limit),
-            offset,
-            order: [[sortBy, sortOrder.toUpperCase()]],
-            include: ['user', 'product', 'address']
-        });
-
-        res.json({
-            success: true,
-            data: {
-                subscriptions,
-                pagination: {
-                    total: count,
-                    page: parseInt(page),
-                    limit: parseInt(limit),
-                    totalPages: Math.ceil(count / limit)
-                }
-            }
-        });
-    })
-);
-
-// =========================
-// GET SUBSCRIPTION BY ID
-// =========================
-router.get(
-    '/:id',
-    (typeof cacheMiddleware === "function" ? cacheMiddleware(300) : (req,res,next)=>next()),
-    asyncHandler(async (req, res) => {
-        const subscription = await EnhancedSubscription.findByPk(req.params.id, {
-            include: ['user', 'product', 'address', 'deliveries', 'payments']
-        });
-
-        if (!subscription) {
-            return res.status(404).json({
-                success: false,
-                message: 'Subscription not found'
-            });
-        }
-
-        res.json({
-            success: true,
-            data: subscription
-        });
-    })
-);
-
-// =========================
-// UPDATE SUBSCRIPTION
-// =========================
-router.put(
-    '/:id',
-    validateSubscriptionUpdate,
-    handleValidationErrors,
-    asyncHandler(async (req, res) => {
-        const subscription = await EnhancedSubscription.findByPk(req.params.id);
-
-        if (!subscription) {
-            return res.status(404).json({
-                success: false,
-                message: 'Subscription not found'
-            });
-        }
-
-        await subscription.update({
-            ...req.body,
-            updatedAt: new Date()
-        });
-
-        await AdvancedAnalytics.logEvent('subscription_updated', {
-            subscriptionId: subscription.id,
-            userId: subscription.userId,
-            changes: Object.keys(req.body)
-        });
-
-        invalidateCache(`/api/enhanced-subscriptions/${req.params.id}`);
-        invalidateCache('/api/enhanced-subscriptions');
-
-        logger.info(`Enhanced subscription updated: ${subscription.id}`);
-
-        res.json({
-            success: true,
-            message: 'Subscription updated successfully',
-            data: subscription
-        });
-    })
-);
-
-// =========================
-// PAUSE SUBSCRIPTION
-// =========================
-router.post(
-    '/:id/pause',
-    validatePauseSubscription,
-    handleValidationErrors,
-    asyncHandler(async (req, res) => {
-        const subscription = await EnhancedSubscription.findByPk(req.params.id);
-
-        if (!subscription) {
-            return res.status(404).json({ success: false, message: 'Subscription not found' });
-        }
-
-        if (subscription.status !== 'active') {
-            return res.status(400).json({ success: false, message: 'Only active subscriptions can be paused' });
-        }
-
-        await subscription.update({
-            status: 'paused',
-            pausedAt: new Date(),
-            updatedAt: new Date()
-        });
-
-        await AdvancedAnalytics.logEvent('subscription_paused', {
-            subscriptionId: subscription.id,
-            userId: subscription.userId
-        });
-
-        invalidateCache(`/api/enhanced-subscriptions/${req.params.id}`);
-        invalidateCache('/api/enhanced-subscriptions');
-
-        logger.info(`Enhanced subscription paused: ${subscription.id}`);
-
-        res.json({ success: true, message: 'Subscription paused successfully', data: subscription });
-    })
-);
-
-// =========================
-// RESUME SUBSCRIPTION
-// =========================
-router.post(
-    '/:id/resume',
-    validateResumeSubscription,
-    handleValidationErrors,
-    asyncHandler(async (req, res) => {
-        const subscription = await EnhancedSubscription.findByPk(req.params.id);
-
-        if (!subscription) {
-            return res.status(404).json({ success: false, message: 'Subscription not found' });
-        }
-
-        if (subscription.status !== 'paused') {
-            return res.status(400).json({ success: false, message: 'Only paused subscriptions can be resumed' });
-        }
-
-        await subscription.update({
-            status: 'active',
-            resumedAt: new Date(),
-            updatedAt: new Date()
-        });
-
-        await AdvancedAnalytics.logEvent('subscription_resumed', {
-            subscriptionId: subscription.id,
-            userId: subscription.userId
-        });
-
-        invalidateCache(`/api/enhanced-subscriptions/${req.params.id}`);
-        invalidateCache('/api/enhanced-subscriptions');
-
-        logger.info(`Enhanced subscription resumed: ${subscription.id}`);
-
-        res.json({ success: true, message: 'Subscription resumed successfully', data: subscription });
-    })
-);
-
-// =========================
-// CANCEL SUBSCRIPTION
-// =========================
-router.post(
-    '/:id/cancel',
-    validateCancelSubscription,
-    handleValidationErrors,
-    asyncHandler(async (req, res) => {
-        const subscription = await EnhancedSubscription.findByPk(req.params.id);
-
-        if (!subscription) {
-            return res.status(404).json({ success: false, message: 'Subscription not found' });
-        }
-
-        if (subscription.status === 'cancelled') {
-            return res.status(400).json({ success: false, message: 'Subscription is already cancelled' });
-        }
-
-        const { reason, feedback } = req.body;
-
-        await subscription.update({
-            status: 'cancelled',
-            cancelledAt: new Date(),
-            cancellationReason: reason,
-            cancellationFeedback: feedback,
-            updatedAt: new Date()
-        });
-
-        await AdvancedAnalytics.logEvent('subscription_cancelled', {
-            subscriptionId: subscription.id,
-            userId: subscription.userId,
-            reason,
-            feedback
-        });
-
-        invalidateCache(`/api/enhanced-subscriptions/${req.params.id}`);
-        invalidateCache('/api/enhanced-subscriptions');
-
-        logger.info(`Enhanced subscription cancelled: ${subscription.id}`);
-
-        res.json({ success: true, message: 'Subscription cancelled successfully', data: subscription });
-    })
-);
-
-// =========================
-// SKIP DELIVERY
-// =========================
-router.post(
-    '/:id/skip-delivery',
-    validateSkipDelivery,
-    handleValidationErrors,
-    asyncHandler(async (req, res) => {
-        const subscription = await EnhancedSubscription.findByPk(req.params.id);
-
-        if (!subscription) {
-            return res.status(404).json({ success: false, message: 'Subscription not found' });
-        }
-
-        const { date, reason } = req.body;
-        const skipDate = new Date(date);
-
-        const skippedDeliveries = subscription.skippedDeliveries || [];
-        skippedDeliveries.push({ date: skipDate, reason, skippedAt: new Date() });
-
-        await subscription.update({ skippedDeliveries, updatedAt: new Date() });
-
-        await AdvancedAnalytics.logEvent('delivery_skipped', {
-            subscriptionId: subscription.id,
-            userId: subscription.userId,
-            skipDate,
-            reason
-        });
-
-        invalidateCache(`/api/enhanced-subscriptions/${req.params.id}`);
-
-        logger.info(`Delivery skipped for subscription: ${subscription.id}`);
-
-        res.json({ success: true, message: 'Delivery skipped successfully', data: subscription });
-    })
-);
-
-// =========================
-// ADD EXTRA DELIVERY
-// =========================
-router.post(
-    '/:id/add-delivery',
-    validateAddDelivery,
-    handleValidationErrors,
-    asyncHandler(async (req, res) => {
-        const subscription = await EnhancedSubscription.findByPk(req.params.id);
-
-        if (!subscription) {
-            return res.status(404).json({ success: false, message: 'Subscription not found' });
-        }
-
-        const { date, quantity = subscription.quantity } = req.body;
-        const addDate = new Date(date);
-
-        const extraDeliveries = subscription.extraDeliveries || [];
-        extraDeliveries.push({ date: addDate, quantity, addedAt: new Date() });
-
-        await subscription.update({ extraDeliveries, updatedAt: new Date() });
-
-        await AdvancedAnalytics.logEvent('extra_delivery_added', {
-            subscriptionId: subscription.id,
-            userId: subscription.userId,
-            addDate,
-            quantity
-        });
-
-        invalidateCache(`/api/enhanced-subscriptions/${req.params.id}`);
-
-        logger.info(`Extra delivery added for subscription: ${subscription.id}`);
-
-        res.json({ success: true, message: 'Extra delivery added successfully', data: subscription });
-    })
-);
-
-// =========================
-// SUBSCRIPTION ANALYTICS
-// =========================
-router.get(
-    '/:id/analytics',
-    asyncHandler(async (req, res) => {
-        const subscription = await EnhancedSubscription.findByPk(req.params.id);
-
-        if (!subscription) {
-            return res.status(404).json({ success: false, message: 'Subscription not found' });
-        }
-
-        const analytics = await AdvancedAnalytics.getSubscriptionAnalytics(req.params.id);
-
-        res.json({ success: true, data: analytics });
-    })
-);
+      }
+    }
+
+    // ✅ Calculate correct end date based on duration
+    let daysToAdd;
+    if (duration === "6days") {
+      daysToAdd = 7; // 6 days + 1 free
+    } else if (duration === "15days") {
+      daysToAdd = 17; // 15 days + 2 free
+    } else {
+      daysToAdd = 15; // fallback
+    }
+
+    // ✅ Update user row with subscription details
+    await query(
+      `UPDATE users SET
+        subscription_type = ?,
+        subscription_duration = ?,
+        subscription_status = 'active',
+        subscription_amount = ?,
+        subscription_address = ?,
+        subscription_building_name = ?,
+        subscription_flat_number = ?,
+        subscription_payment_id = ?,
+        subscription_start_date = NOW(),
+        subscription_end_date = DATE_ADD(NOW(), INTERVAL ${daysToAdd} DAY),
+        subscription_created_at = NOW(),
+        subscription_updated_at = NOW()
+      WHERE username = ? OR email = ?`,
+      [
+        subscription_type,
+        duration,
+        amount,
+        address,
+        building_name,
+        flat_number,
+        payment_id,
+        username,
+        username
+      ]
+    );
+
+    res
+      .status(201)
+      .json({ success: true, message: "Subscription created/updated successfully" });
+  } catch (error) {
+    console.error("Subscription create error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ✅ Get Subscription by Username
+router.get("/user/:username", async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    const [rows] = await query(
+      "SELECT * FROM users WHERE username = ? OR email = ?",
+      [username, username]
+    );
+    if (rows.length === 0) {
+      return res
+        .status(404)
+        .json({ subscription: null, hasActiveSubscription: false });
+    }
+
+    const user = rows[0];
+    let subscription = null;
+
+    if (user.subscription_type) {
+      subscription = {
+        type: user.subscription_type,
+        duration: user.subscription_duration,
+        status: user.subscription_status,
+        start_date: user.subscription_start_date,
+        end_date: user.subscription_end_date,
+        amount: user.subscription_amount,
+        address: user.subscription_address,
+        building_name: user.subscription_building_name,
+        flat_number: user.subscription_flat_number,
+        payment_id: user.subscription_payment_id
+      };
+    }
+
+    res.json({
+      subscription,
+      hasActiveSubscription: subscription?.status === "active"
+    });
+  } catch (error) {
+    console.error("Fetch subscription error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ✅ Get Detailed Subscription Info by Username
+router.get("/details/:username", async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    // First check if user exists
+    const [userRows] = await query(
+      "SELECT id, username, email, name, phone FROM users WHERE username = ? OR email = ?",
+      [username, username]
+    );
+    if (userRows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const user = userRows[0];
+
+    // ✅ Check subscriptions table (make sure table exists!)
+    const [subscriptionRows] = await query(
+      `
+      SELECT s.*,
+             DATEDIFF(s.end_date, CURDATE()) as remaining_days,
+             DATEDIFF(s.end_date, s.created_at) as total_days
+      FROM subscriptions s
+      WHERE s.username = ?
+      ORDER BY 
+        CASE WHEN s.status = 'active' THEN 1 ELSE 0 END DESC,
+        CASE WHEN s.status = 'paused' THEN 1 ELSE 0 END DESC,
+        s.created_at DESC
+      LIMIT 1
+    `,
+      [username]
+    );
+
+    let subscription = null;
+    let analytics = null;
+
+    if (subscriptionRows.length > 0) {
+      const sub = subscriptionRows[0];
+      const endDate = new Date(sub.end_date);
+      const today = new Date();
+      const diffTime = endDate - today;
+      const remainingDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const remainingDaysDisplay = remainingDays < 0 ? 0 : remainingDays;
+
+      const startDate = new Date(sub.created_at);
+      const totalDays =
+        sub.total_days ||
+        Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+      const usedDays = totalDays - remainingDaysDisplay;
+      const usagePercentage =
+        totalDays > 0 ? Math.round((usedDays / totalDays) * 100) : 0;
+
+      subscription = {
+        id: sub.id,
+        subscription_type: sub.subscription_type,
+        subscription_duration: sub.duration,
+        subscription_status: sub.status,
+        subscription_start_date: sub.created_at,
+        subscription_end_date: sub.end_date,
+        subscription_amount: sub.amount,
+        subscription_address: sub.address,
+        subscription_building_name: sub.building_name,
+        subscription_flat_number: sub.flat_number,
+        subscription_payment_id: sub.payment_id,
+        remaining_days: remainingDaysDisplay,
+        total_days: totalDays,
+        used_days: usedDays,
+        usage_percentage: usagePercentage,
+        is_expired: remainingDays < 0,
+        is_active: sub.status === "active" && remainingDays >= 0,
+        created_at: sub.created_at,
+        updated_at: sub.updated_at,
+        paused_at: sub.paused_at,
+        resumed_at: sub.resumed_at,
+        total_paused_days: sub.total_paused_days
+      };
+
+      analytics = {
+        total_subscriptions: 1,
+        active_subscriptions:
+          sub.status === "active" && remainingDays >= 0 ? 1 : 0,
+        paused_subscriptions: sub.status === "paused" ? 1 : 0,
+        cancelled_subscriptions: sub.status === "cancelled" ? 1 : 0,
+        expired_subscriptions: remainingDays < 0 ? 1 : 0,
+        total_amount_spent: parseFloat(sub.amount || 0),
+        average_subscription_length: totalDays,
+        current_streak_days: sub.status === "active" ? remainingDaysDisplay : 0
+      };
+    }
+
+    res.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        name: user.name,
+        phone: user.phone
+      },
+      subscription,
+      analytics,
+      hasActiveSubscription: subscription?.is_active || false
+    });
+  } catch (error) {
+    console.error("Fetch detailed subscription error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ✅ Pause Subscription
+router.post("/:username/pause", async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    await query(
+      `UPDATE users SET subscription_status = 'paused', subscription_updated_at = NOW() WHERE username = ? OR email = ?`,
+      [username, username]
+    );
+
+    res.json({ success: true, message: "Subscription paused successfully" });
+  } catch (error) {
+    console.error("Pause subscription error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ✅ Resume Subscription
+router.post("/:username/resume", async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    await query(
+      `UPDATE users SET subscription_status = 'active', subscription_updated_at = NOW() WHERE username = ? OR email = ?`,
+      [username, username]
+    );
+
+    res.json({ success: true, message: "Subscription resumed successfully" });
+  } catch (error) {
+    console.error("Resume subscription error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ✅ Cancel Subscription
+router.post("/:username/cancel", async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    await query(
+      `UPDATE users SET subscription_status = 'cancelled', subscription_updated_at = NOW() WHERE username = ? OR email = ?`,
+      [username, username]
+    );
+
+    res.json({ success: true, message: "Subscription cancelled successfully" });
+  } catch (error) {
+    console.error("Cancel subscription error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ✅ Extend Subscription
+router.post("/:username/extend", async (req, res) => {
+  try {
+    const { username } = req.params;
+    const { days, amount } = req.body;
+
+    if (!days || days <= 0) {
+      return res.status(400).json({ error: "Valid number of days required" });
+    }
+
+    const [rows] = await query(
+      "SELECT * FROM users WHERE username = ? OR email = ?",
+      [username, username]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const user = rows[0];
+    if (!user.subscription_type || user.subscription_status !== "active") {
+      return res.status(400).json({ error: "No active subscription to extend" });
+    }
+
+    await query(
+      `UPDATE users SET
+        subscription_end_date = DATE_ADD(subscription_end_date, INTERVAL ? DAY),
+        subscription_amount = subscription_amount + ?,
+        subscription_updated_at = NOW()
+      WHERE username = ? OR email = ?`,
+      [days, amount || 0, username, username]
+    );
+
+    res.json({ success: true, message: `Subscription extended by ${days} days` });
+  } catch (error) {
+    console.error("Extend subscription error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ✅ Update Subscription Details
+router.put("/:username", async (req, res) => {
+  try {
+    const { username } = req.params;
+    const { address, building_name, flat_number } = req.body;
+
+    await query(
+      `UPDATE users SET
+        subscription_address = ?,
+        subscription_building_name = ?,
+        subscription_flat_number = ?,
+        subscription_updated_at = NOW()
+      WHERE username = ? OR email = ?`,
+      [address, building_name, flat_number, username, username]
+    );
+
+    res.json({ success: true, message: "Subscription details updated successfully" });
+  } catch (error) {
+    console.error("Update subscription error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ✅ Get Subscription Statistics
+router.get("/stats/:username", async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    const [rows] = await query(
+      "SELECT * FROM users WHERE username = ? OR email = ?",
+      [username, username]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const user = rows[0];
+    const stats = {
+      user_id: user.id,
+      username: user.username,
+      has_subscription: !!user.subscription_type,
+      subscription_status: user.subscription_status,
+      subscription_type: user.subscription_type,
+      total_amount_spent: parseFloat(user.subscription_amount || 0),
+      subscription_created: user.subscription_created_at,
+      last_updated: user.subscription_updated_at
+    };
+
+    if (user.subscription_type) {
+      const endDate = new Date(user.subscription_end_date);
+      const today = new Date();
+      const diffTime = endDate - today;
+      const remainingDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      stats.remaining_days = remainingDays < 0 ? 0 : remainingDays;
+      stats.is_expired = remainingDays < 0;
+      stats.is_active = user.subscription_status === "active" && remainingDays >= 0;
+      stats.subscription_end_date = user.subscription_end_date;
+    }
+
+    res.json(stats);
+  } catch (error) {
+    console.error("Get subscription stats error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 module.exports = router;

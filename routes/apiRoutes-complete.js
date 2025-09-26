@@ -150,9 +150,9 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
             SELECT
                 subscription_type,
                 subscription_duration,
-                subscription_created_at as created_at,
-                subscription_end_date as end_date,
-                subscription_status as status,
+                subscription_start_date,
+                subscription_end_date,
+                subscription_status,
                 paused_at,
                 CASE
                     WHEN subscription_status = 'active' AND subscription_end_date IS NOT NULL
@@ -174,7 +174,7 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
         const sub = subscriptions.length > 0 ? subscriptions[0] : null;
 
         const response = {
-            hasActiveSubscription: sub ? (sub.status === 'active' || sub.status === 'paused' || sub.status === 'expired') : false,
+            hasActiveSubscription: sub ? (sub.subscription_status === 'active' || sub.subscription_status === 'paused' || sub.subscription_status === 'expired') : false,
             subscription: sub,
             cache: true,
             timestamp: new Date().toISOString()

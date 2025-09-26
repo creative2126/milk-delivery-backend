@@ -148,11 +148,13 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
         // Fixed: Calculate remaining days correctly for paused subscriptions
         const query = `
             SELECT
+                id,
                 subscription_type,
                 subscription_duration,
-                subscription_created_at as created_at,
-                subscription_end_date as end_date,
-                subscription_status as status,
+                subscription_amount,
+                subscription_start_date,
+                subscription_end_date,
+                subscription_status,
                 paused_at,
                 CASE
                     WHEN subscription_status = 'active' AND subscription_end_date IS NOT NULL
@@ -173,9 +175,20 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
 
         const sub = subscriptions.length > 0 ? subscriptions[0] : null;
 
+        const normalizedSub = sub ? {
+            id: sub.id,
+            type: sub.subscription_type,
+            duration: sub.subscription_duration,
+            amount: sub.subscription_amount,
+            status: sub.subscription_status,
+            start_date: sub.subscription_start_date,
+            end_date: sub.subscription_end_date,
+            remaining_days: sub.remaining_days
+        } : null;
+
         const response = {
-            hasActiveSubscription: sub ? (sub.status === 'active' || sub.status === 'paused' || sub.status === 'expired') : false,
-            subscription: sub,
+            hasActiveSubscription: normalizedSub ? (normalizedSub.status === 'active' || normalizedSub.status === 'paused' || normalizedSub.status === 'expired') : false,
+            subscription: normalizedSub,
             cache: true,
             timestamp: new Date().toISOString()
         };

@@ -1,283 +1,162 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const queryOptimizer = require('../utils/queryOptimizer');
-const cacheMiddleware = require('../middleware/cacheMiddleware');
 const fetch = require('node-fetch');
-console.log('==== apiRoutes.js router LOADED ====');
 
-// Helper function to geocode address to lat/lng using OpenStreetMap Nominatim API
+console.log('✅ API Routes Loaded');
+
+// 📍 Helper: Geocode Address (Optional)
 async function geocodeAddress(address) {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
-    try {
-        const response = await fetch(url, {
-            headers: {
-                'User-Agent': 'MilkDeliveryApp/1.0 (your-email@example.com)'
-            }
-        });
-        const data = await response.json();
-        if (data && data.length > 0) {
-            return {
-                latitude: parseFloat(data[0].lat),
-                longitude: parseFloat(data[0].lon)
-            };
-        }
-    } catch (error) {
-        console.error('Geocoding error:', error);
+  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
+  try {
+    const response = await fetch(url, { headers: { 'User-Agent': 'MilkDeliveryApp/1.0' } });
+    const data = await response.json();
+    if (data?.length > 0) {
+      return { latitude: parseFloat(data[0].lat), longitude: parseFloat(data[0].lon) };
     }
-    return null;
+  } catch (error) {
+    console.error('🌍 Geocoding error:', error.message);
+  }
+  return null;
 }
 
-// API endpoint for profile by username
-router.get('/profile', cacheMiddleware.cacheUserData(600), async (req, res) => {
-    console.log('==== /api/profile route handler STARTED ====');
-    console.log('Request query:', req.query);
-    try {
-        const usernameOrEmail = req.query.username;
-        console.log('Profile fetch requested for:', usernameOrEmail);
-        if (!usernameOrEmail) {
-            return res.status(400).json({ error: 'Username is required' });
-        }
-        // Query user by username OR email OR name
-        const query = 'SELECT * FROM users WHERE username = ? OR email = ? OR name = ?';
-        const userData = await db.query(query, [usernameOrEmail, usernameOrEmail, usernameOrEmail]);
-        console.log('Profile query result:', userData);
-        if (!userData || userData.length === 0) {
-            console.log('User not found for:', usernameOrEmail);
-            return res.status(404).json({ error: 'User not found' });
-        }
-        // Fill missing fields with 'NA'
-        const user = userData[0];
-        const safeUser = {
-            name: user.name || 'NA',
-            username: user.username || 'NA',
-            email: user.email || 'NA',
-            phone: user.phone || 'NA',
-            street: user.street || 'NA',
-            city: user.city || 'NA',
-            state: user.state || 'NA',
-            zip: user.zip || 'NA',
-            latitude: user.latitude || null,
-            longitude: user.longitude || null,
-            created_at: user.created_at || 'NA',
-            updated_at: user.updated_at || 'NA'
-        };
+// =============================
+// 📌 1️⃣ GET USER PROFILE
+// =============================
+router.get('/profile', async (req, res) => {
+  console.log('➡️ /api/profile hit:', req.query);
+  try {
+    const username = req.query.username;
+    if (!username) return res.status(400).json({ error: 'Username is required' });
 
-        // Fetch user_id for subscription query
-        const userId = user.id;
+    const query = `SELECT * FROM users WHERE username = ? OR email = ? OR name = ?`;
+    const users = await db.query(query, [username, username, username]);
 
-        // Fetch most recent subscription for the user by username
-        const subscriptionQuery = `
-            SELECT s.*, DATEDIFF(s.end_date, CURDATE()) as remaining_days
-            FROM subscriptions s
-            WHERE s.username = ?
-            ORDER BY CASE WHEN s.status = 'active' THEN 1 ELSE 0 END DESC,
-                     CASE WHEN s.status = 'paused' THEN 1 ELSE 0 END DESC,
-                     s.created_at DESC
-            LIMIT 1
-        `;
-        const subscriptionData = await db.query(subscriptionQuery, [user.username]);
-        let subscription = null;
-        if (Array.isArray(subscriptionData) && subscriptionData.length > 0) {
-            if (Array.isArray(subscriptionData[0]) && subscriptionData[0].length > 0) {
-                subscription = subscriptionData[0][0];
-            } else if (subscriptionData[0]) {
-                subscription = subscriptionData[0];
-            }
-        }
+    if (users.length === 0) return res.status(404).json({ error: 'User not found' });
 
-        // Merge subscription data into user object for frontend compatibility
-        const userWithSubscription = {
-            ...safeUser,
-            subscription_type: subscription ? subscription.subscription_type : null,
-            subscription_duration: subscription ? subscription.duration : null,
-            subscription_status: subscription ? subscription.status : null,
-            subscription_start_date: subscription ? subscription.start_date : null,
-            subscription_end_date: subscription ? subscription.end_date : null,
-            subscription_address: subscription ? subscription.address : null,
-            subscription_building_name: subscription ? subscription.building_name : null,
-            subscription_flat_number: subscription ? subscription.flat_number : null,
-            remaining_days: subscription ? subscription.remaining_days : null
-        };
+    const user = users[0];
 
-        const response = {
-            user: userWithSubscription,
-            subscription: subscription,
-            cache: true,
-            timestamp: new Date().toISOString()
-        };
-        res.json(response);
-    } catch (error) {
-        console.error('Profile fetch error:', error.stack || error);
-        res.status(500).json({ error: 'Failed to fetch user profile' });
+    // ✅ Calculate remaining days if subscription_end_date exists
+    let remainingDays = null;
+    if (user.subscription_end_date) {
+      const endDate = new Date(user.subscription_end_date);
+      const today = new Date();
+      remainingDays = Math.max(0, Math.ceil((endDate - today) / (1000 * 60 * 60 * 24)));
     }
+
+    // 📦 Build response object
+    const response = {
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        name: user.name,
+        phone: user.phone,
+        address: user.subscription_address || null,
+        subscription: {
+          type: user.subscription_type || null,
+          duration: user.subscription_duration || null,
+          status: user.subscription_status || 'inactive',
+          start_date: user.subscription_start_date || null,
+          end_date: user.subscription_end_date || null,
+          remaining_days: remainingDays,
+          amount: user.subscription_amount || null,
+          building_name: user.subscription_building_name || null,
+          flat_number: user.subscription_flat_number || null,
+          payment_id: user.subscription_payment_id || null,
+          paused_at: user.paused_at || null,
+          resumed_at: user.resumed_at || null,
+          total_paused_days: user.total_paused_days || 0
+        }
+      }
+    };
+
+    return res.json(response);
+  } catch (err) {
+    console.error('❌ Profile fetch error:', err);
+    return res.status(500).json({ error: 'Failed to fetch user profile', details: err.message });
+  }
 });
 
-// PUT route to update user address and geocode lat/lng
-router.put('/users/:username', async (req, res) => {
-    try {
-        const username = req.params.username;
-        const { street, city, state, zip } = req.body;
+// =============================
+// 📌 2️⃣ GET REMAINING SUBSCRIPTION DAYS
+// =============================
+router.get('/subscriptions/remaining/:username', async (req, res) => {
+  console.log('➡️ /subscriptions/remaining called for:', req.params.username);
+  try {
+    const username = req.params.username;
+    if (!username) return res.status(400).json({ error: 'Username is required' });
 
-        if (!street || !city || !state || !zip) {
-            return res.status(400).json({ error: 'All address fields are required' });
-        }
+    const query = `SELECT * FROM users WHERE username = ? OR email = ? OR name = ?`;
+    const users = await db.query(query, [username, username, username]);
 
-        const fullAddress = `${street}, ${city}, ${state}, ${zip}`;
-        const geo = await geocodeAddress(fullAddress);
+    if (users.length === 0) return res.status(404).json({ error: 'User not found' });
 
-        let latitude = null;
-        let longitude = null;
-        if (geo) {
-            latitude = geo.latitude;
-            longitude = geo.longitude;
-        }
+    const user = users[0];
 
-        const updateQuery = `
-            UPDATE users
-            SET street = ?, city = ?, state = ?, zip = ?, latitude = ?, longitude = ?
-            WHERE username = ?
-        `;
-
-        const result = await db.query(updateQuery, [street, city, state, zip, latitude, longitude, username]);
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-
-        res.json({ success: true, message: 'Address updated successfully', latitude, longitude });
-    } catch (error) {
-        console.error('Error updating user address:', error);
-        res.status(500).json({ error: 'Failed to update address' });
+    let remainingDays = 0;
+    if (user.subscription_end_date) {
+      const endDate = new Date(user.subscription_end_date);
+      const today = new Date();
+      remainingDays = Math.max(0, Math.ceil((endDate - today) / (1000 * 60 * 60 * 24)));
     }
+
+    return res.json({
+      username: user.username,
+      hasActiveSubscription: user.subscription_status === 'active',
+      subscription: {
+        type: user.subscription_type,
+        duration: user.subscription_duration,
+        status: user.subscription_status,
+        start_date: user.subscription_start_date,
+        end_date: user.subscription_end_date,
+        remaining_days: remainingDays
+      }
+    });
+  } catch (err) {
+    console.error('❌ Remaining subscription fetch error:', err);
+    return res.status(500).json({ error: 'Failed to fetch remaining subscription', details: err.message });
+  }
 });
 
-router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(300), async (req, res) => {
-    try {
-        const username = req.params.username;
+// =============================
+// 📌 3️⃣ SUBSCRIPTION SUMMARY
+// =============================
+router.get('/subscriptions/summary/:username', async (req, res) => {
+  console.log('➡️ /subscriptions/summary called for:', req.params.username);
+  try {
+    const username = req.params.username;
+    if (!username) return res.status(400).json({ error: 'Username is required' });
 
-        if (!username) {
-            return res.status(400).json({ error: 'Username is required' });
-        }
+    const query = `SELECT * FROM users WHERE username = ? OR email = ? OR name = ?`;
+    const users = await db.query(query, [username, username, username]);
 
-        // Get the most recent active, paused, or expired subscription by username directly
-        // Fixed: Calculate remaining days correctly for paused subscriptions
-        const query = `
-            SELECT
-                s.id,
-                s.subscription_type,
-                s.duration,
-                s.created_at,
-                s.end_date,
-                s.status,
-                s.paused_at,
-                CASE
-                    WHEN s.status = 'active' AND s.end_date IS NOT NULL
-                    THEN GREATEST(DATEDIFF(s.end_date, CURDATE()), 0)
-                    WHEN s.status = 'paused' AND s.end_date IS NOT NULL AND s.paused_at IS NOT NULL
-                    THEN GREATEST(DATEDIFF(s.end_date, s.paused_at), 0)
-                    WHEN s.status = 'expired' OR s.end_date < CURDATE()
-                    THEN 0
-                    ELSE 0
-                END as remaining_days
-            FROM subscriptions s
-            WHERE s.username = ? AND s.status IN ('active', 'paused', 'expired')
-            ORDER BY CASE WHEN s.status = 'active' THEN 1 ELSE 0 END DESC, CASE WHEN s.status = 'paused' THEN 1 ELSE 0 END DESC, s.created_at DESC
-            LIMIT 1
-        `;
+    if (users.length === 0) return res.status(404).json({ error: 'User not found' });
 
-        const subscriptions = await db.query(query, [username]);
-        console.log('Subscriptions query result for username', username, ':', subscriptions);
+    const user = users[0];
 
-        const sub = subscriptions.length > 0 ? subscriptions[0] : null;
-
-        const response = {
-            hasActiveSubscription: sub ? (sub.status === 'active' || sub.status === 'paused' || sub.status === 'expired') : false,
-            subscription: sub,
-            cache: true,
-            timestamp: new Date().toISOString()
-        };
-
-        res.json(response);
-    } catch (error) {
-        console.error('Subscriptions remaining error:', error);
-        res.status(500).json({ error: 'Failed to fetch subscription details' });
+    let remainingDays = 0;
+    if (user.subscription_end_date) {
+      const endDate = new Date(user.subscription_end_date);
+      const today = new Date();
+      remainingDays = Math.max(0, Math.ceil((endDate - today) / (1000 * 60 * 60 * 24)));
     }
-});
 
-// API endpoint for user subscriptions summary
-router.get('/api/subscriptions/summary/:username', cacheMiddleware.cacheUserData(300), async (req, res) => {
-    try {
-        const username = req.params.username;
-
-        if (!username) {
-            return res.status(400).json({ error: 'Username is required' });
-        }
-
-        // First get user ID from username
-        const userResult = await db.query(
-            'SELECT id FROM users WHERE username = ? OR email = ?',
-            [username, username]
-        );
-
-        if (!userResult || userResult.length === 0) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-
-        const userId = userResult[0].id;
-
-        // Get subscription summary
-        const summaryQuery = `
-            SELECT
-                COUNT(*) as total_subscriptions,
-                SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_subscriptions,
-                SUM(CASE WHEN status = 'paused' THEN 1 ELSE 0 END) as paused_subscriptions,
-                SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_subscriptions,
-                SUM(CASE WHEN status = 'active' THEN total_amount ELSE 0 END) as total_active_value,
-                AVG(CASE WHEN status = 'active' THEN total_amount ELSE NULL END) as avg_subscription_value
-            FROM subscriptions
-            WHERE user_id = ?
-        `;
-
-        const [summary] = await db.query(summaryQuery, [userId]);
-
-        // Get upcoming renewals
-        const renewalsQuery = `
-            SELECT
-                s.id,
-                p.name as product_name,
-                s.end_date as renewal_date,
-                DATEDIFF(s.end_date, CURDATE()) as days_until_renewal,
-                s.total_amount as renewal_amount
-            FROM subscriptions s
-            JOIN products p ON s.product_id = p.id
-            WHERE s.user_id = ?
-                AND s.status = 'active'
-                AND s.end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
-            ORDER BY s.end_date ASC
-        `;
-
-        const [upcomingRenewals] = await db.query(renewalsQuery, [userId]);
-
-        const response = {
-            username,
-            summary: summary[0],
-            upcomingRenewals: upcomingRenewals.map(renewal => ({
-                subscriptionId: renewal.id,
-                productName: renewal.product_name,
-                renewalDate: renewal.renewal_date,
-                daysUntilRenewal: renewal.days_until_renewal,
-                renewalAmount: renewal.renewal_amount
-            })),
-            cache: true,
-            timestamp: new Date().toISOString()
-        };
-
-        res.json(response);
-    } catch (error) {
-        console.error('Subscriptions summary error:', error);
-        res.status(500).json({ error: 'Failed to fetch subscription summary' });
-    }
+    return res.json({
+      username: user.username,
+      summary: {
+        subscription_type: user.subscription_type,
+        subscription_status: user.subscription_status,
+        total_days: user.subscription_duration,
+        remaining_days: remainingDays,
+        amount: user.subscription_amount
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('❌ Subscription summary error:', err);
+    return res.status(500).json({ error: 'Failed to fetch subscription summary', details: err.message });
+  }
 });
 
 module.exports = router;

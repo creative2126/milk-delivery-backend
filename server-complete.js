@@ -17,7 +17,7 @@ const db = require('./db');
 // Routes
 const subscriptionRoutesFixed = require('./routes/subscriptionRoutes-fixed');
 // const subscriptionRoutesUpdated = require('./routes/subscriptionRoutes-updated'); // Commented out due to Sequelize dependency issues
-const apiRoutes = require('./routes/apiRoutes-complete'); // Updated to use complete API routes with pause/resume
+const apiRoutes = require('./routes/apiRoutes-complete-fixed'); // Updated to use complete API routes with pause/resume
 const optimizedRoutes = require('./routes/optimizedRoutes');
 const enhancedSubscriptionRoutes = require('./routes/enhancedSubscriptionRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
@@ -102,8 +102,8 @@ app.use('/api', (req, res, next) => CacheMiddleware.clearCache('api')(req, res, 
 app.use('/api/user', (req, res, next) => CacheMiddleware.clearCache('user')(req, res, next));
 app.use('/api', CacheMiddleware.rateLimit(200, 15 * 60 * 1000));
 
-// -------------------- Database Health Check --------------------
-app.use(async (req, res, next) => {
+// -------------------- Database Health Check (API routes only) --------------------
+app.use('/api', async (req, res, next) => {
   try {
     await db.query('SELECT 1');
     next();
@@ -261,7 +261,7 @@ app.use('*', (req, res, next) => {
   if (req.path.startsWith('/api/')) {
     return next();
   }
-  res.sendFile(path.join(__dirname, '../frontend/public/home.html'));
+  res.sendFile(path.join(__dirname, '../frontend/public/index.html'));
 });
 
 // -------------------- Start Server --------------------

@@ -4,7 +4,16 @@ const db = require('../db');
 const queryOptimizer = require('../utils/queryOptimizer');
 const cacheMiddleware = require('../middleware/cacheMiddleware');
 const fetch = require('node-fetch');
+
 console.log('==== apiRoutes-complete-fixed.js router LOADED ====');
+
+// Helper function to normalize database query results
+function normalizeQueryResult(result) {
+    if (Array.isArray(result) && Array.isArray(result[0])) {
+        return result[0]; // MySQL with multiple result sets
+    }
+    return result; // Single result set
+}
 
 // Helper function to geocode address to lat/lng using OpenStreetMap Nominatim API
 async function geocodeAddress(address) {
@@ -32,23 +41,32 @@ async function geocodeAddress(address) {
 router.get('/profile', cacheMiddleware.cacheUserData(600), async (req, res) => {
     console.log('==== /api/profile route handler STARTED ====');
     console.log('Request query:', req.query);
+    
     try {
         const usernameOrEmail = req.query.username;
         console.log('Profile fetch requested for:', usernameOrEmail);
+        
         if (!usernameOrEmail) {
             return res.status(400).json({ error: 'Username is required' });
         }
+
         // Query user by username OR email OR name
-        const query = 'SELECT * FROM users WHERE username = ? OR email = ? OR name = ?';
-        const userData = await db.query(query, [usernameOrEmail, usernameOrEmail, usernameOrEmail]);
+        const query = 'SELECT * FROM users WHERE username = ? OR email = ? OR name = ? LIMIT 1';
+        const result = await db.query(query, [usernameOrEmail, usernameOrEmail, usernameOrEmail]);
+        const userData = normalizeQueryResult(result);
+        
         console.log('Profile query result:', userData);
+        
         if (!userData || userData.length === 0) {
             console.log('User not found for:', usernameOrEmail);
             return res.status(404).json({ error: 'User not found' });
         }
-        // Fill missing fields with 'NA'
+
         const user = userData[0];
-        const safeUser = {
+        
+        // Create safe user object with subscription data
+        const userWithSubscription = {
+            // Basic user info
             name: user.name || 'NA',
             username: user.username || 'NA',
             email: user.email || 'NA',
@@ -60,16 +78,13 @@ router.get('/profile', cacheMiddleware.cacheUserData(600), async (req, res) => {
             latitude: user.latitude || null,
             longitude: user.longitude || null,
             created_at: user.created_at || 'NA',
-            updated_at: user.updated_at || 'NA'
-        };
-
-        // Get subscription data directly from users table (merged structure)
-        const userWithSubscription = {
-            ...safeUser,
+            updated_at: user.updated_at || 'NA',
+            
+            // Subscription data from users table
             subscription_type: user.subscription_type || null,
             subscription_duration: user.subscription_duration || null,
             subscription_status: user.subscription_status || null,
-            subscription_start_date: user.subscription_start_date || null,
+            subscription_start_date: user.subscription_start_date || user.subscription_created_at || null,
             subscription_end_date: user.subscription_end_date || null,
             subscription_address: user.subscription_address || null,
             subscription_building_name: user.subscription_building_name || null,
@@ -81,7 +96,11 @@ router.get('/profile', cacheMiddleware.cacheUserData(600), async (req, res) => {
             paused_at: user.paused_at || null,
             resumed_at: user.resumed_at || null,
             total_paused_days: user.total_paused_days || 0,
-            remaining_days: user.subscription_end_date ? Math.ceil((new Date(user.subscription_end_date) - new Date()) / (1000 * 60 * 60 * 24)) : null
+            
+            // Calculate remaining days
+            remaining_days: user.subscription_end_date ? 
+                Math.max(0, Math.ceil((new Date(user.subscription_end_date) - new Date()) / (1000 * 60 * 60 * 24))) : 
+                null
         };
 
         const response = {
@@ -90,6 +109,7 @@ router.get('/profile', cacheMiddleware.cacheUserData(600), async (req, res) => {
             cache: true,
             timestamp: new Date().toISOString()
         };
+        
         res.json(response);
     } catch (error) {
         console.error('Profile fetch error:', error.stack || error);
@@ -119,63 +139,134 @@ router.put('/users/:username', async (req, res) => {
 
         const updateQuery = `
             UPDATE users
-            SET street = ?, city = ?, state = ?, zip = ?, latitude = ?, longitude = ?
+            SET street = ?, city = ?, state = ?, zip = ?, latitude = ?, longitude = ?, updated_at = NOW()
             WHERE username = ?
         `;
 
         const result = await db.query(updateQuery, [street, city, state, zip, latitude, longitude, username]);
+        const updateResult = normalizeQueryResult(result);
 
-        if (result.affectedRows === 0) {
+        if (updateResult.affectedRows === 0) {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        res.json({ success: true, message: 'Address updated successfully', latitude, longitude });
+        res.json({ 
+            success: true, 
+            message: 'Address updated successfully', 
+            latitude, 
+            longitude 
+        });
     } catch (error) {
         console.error('Error updating user address:', error);
         res.status(500).json({ error: 'Failed to update address' });
     }
 });
 
+// Get remaining subscription for username - SINGLE ROUTE ONLY
 router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(300), async (req, res) => {
     try {
-        const username = req.params.username;
+        const usernameOrEmail = req.params.username;
+        console.log('=== FETCHING REMAINING SUBSCRIPTION ===');
+        console.log('Username:', usernameOrEmail);
 
-        if (!username) {
+        if (!usernameOrEmail) {
             return res.status(400).json({ error: 'Username is required' });
         }
 
-        // Get subscription data directly from users table (merged structure)
-        // Fixed: Calculate remaining days correctly for paused subscriptions
-        const query = `
-            SELECT
-                subscription_type,
-                subscription_duration,
-                subscription_created_at as created_at,
-                subscription_end_date as end_date,
-                subscription_status as status,
-                paused_at,
-                CASE
-                    WHEN subscription_status = 'active' AND subscription_end_date IS NOT NULL
-                    THEN GREATEST(DATEDIFF(subscription_end_date, CURDATE()), 0)
-                    WHEN subscription_status = 'paused' AND subscription_end_date IS NOT NULL AND paused_at IS NOT NULL
-                    THEN GREATEST(DATEDIFF(subscription_end_date, paused_at), 0)
-                    WHEN subscription_status = 'expired' OR subscription_end_date < CURDATE()
-                    THEN 0
-                    ELSE NULL
-                END as remaining_days
-            FROM users
-            WHERE username = ? AND subscription_status IN ('active', 'paused', 'expired')
-            LIMIT 1
-        `;
+        // Find the user by username OR email OR name
+        const userQuery = 'SELECT * FROM users WHERE username = ? OR email = ? OR name = ? LIMIT 1';
+        const userResult = await db.query(userQuery, [usernameOrEmail, usernameOrEmail, usernameOrEmail]);
+        const userData = normalizeQueryResult(userResult);
+        
+        console.log('User query result:', userData);
 
-        const subscriptions = await db.query(query, [username]);
-        console.log('Subscriptions query result for username', username, ':', subscriptions);
+        if (!userData || userData.length === 0) {
+            console.log('No user found for:', usernameOrEmail);
+            return res.status(404).json({ 
+                error: 'User not found',
+                hasActiveSubscription: false
+            });
+        }
 
-        const sub = subscriptions.length > 0 ? subscriptions[0] : null;
+        const user = userData[0];
+        console.log('Found user:', { 
+            id: user.id, 
+            username: user.username, 
+            name: user.name, 
+            subscription_status: user.subscription_status 
+        });
+
+        // Check if user has any subscription data - return subscription object even if expired/paused
+        const hasAnySubscription = user.subscription_type || user.subscription_status;
+        if (!hasAnySubscription) {
+            console.log('No subscription found for user:', usernameOrEmail);
+            return res.json({
+                user: {
+                    id: user.id,
+                    username: user.username,
+                    name: user.name,
+                    email: user.email,
+                    phone: user.phone
+                },
+                subscription: null,
+                hasActiveSubscription: false,
+                cache: true,
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        // Calculate remaining days properly
+        let remainingDays = 0;
+        if (user.subscription_end_date) {
+            const endDate = new Date(user.subscription_end_date);
+            const now = new Date();
+            remainingDays = Math.max(0, Math.ceil((endDate - now) / (1000 * 60 * 60 * 24)));
+        }
+
+        // Create subscription object
+        const subscription = {
+            id: user.id,
+            username: user.username,
+            name: user.name,
+            email: user.email,
+            phone: user.phone,
+            subscription_type: user.subscription_type,
+            subscription_duration: user.subscription_duration,
+            subscription_amount: user.subscription_amount,
+            subscription_status: user.subscription_status,
+            subscription_start_date: user.subscription_start_date || user.subscription_created_at,
+            subscription_end_date: user.subscription_end_date,
+            subscription_address: user.subscription_address,
+            subscription_building_name: user.subscription_building_name,
+            subscription_flat_number: user.subscription_flat_number,
+            subscription_payment_id: user.subscription_payment_id,
+            subscription_created_at: user.subscription_created_at,
+            subscription_updated_at: user.subscription_updated_at,
+            paused_at: user.paused_at,
+            resumed_at: user.resumed_at,
+            total_paused_days: user.total_paused_days || 0,
+            remaining_days: remainingDays
+        };
+
+        // Determine if subscription is considered "active"
+        const hasActiveSubscription = user.subscription_status === 'active' && remainingDays > 0;
+
+        console.log('Subscription found:', {
+            status: subscription.subscription_status,
+            remaining_days: remainingDays,
+            hasActiveSubscription
+        });
 
         const response = {
-            hasActiveSubscription: sub ? (sub.status === 'active' || sub.status === 'paused' || sub.status === 'expired') : false,
-            subscription: sub,
+            user: {
+                id: user.id,
+                username: user.username,
+                name: user.name,
+                email: user.email,
+                phone: user.phone
+            },
+            subscription: subscription,
+            hasActiveSubscription: hasActiveSubscription,
             cache: true,
             timestamp: new Date().toISOString()
         };
@@ -188,7 +279,7 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
 });
 
 // API endpoint for user subscriptions summary
-router.get('/api/subscriptions/summary/:username', cacheMiddleware.cacheUserData(300), async (req, res) => {
+router.get('/subscriptions/summary/:username', cacheMiddleware.cacheUserData(300), async (req, res) => {
     try {
         const username = req.params.username;
 
@@ -196,60 +287,52 @@ router.get('/api/subscriptions/summary/:username', cacheMiddleware.cacheUserData
             return res.status(400).json({ error: 'Username is required' });
         }
 
-        // Get user data with subscription info from merged table
+        // Get user data with subscription info from users table
         const userResult = await db.query(
-            'SELECT id, username, subscription_status, subscription_amount FROM users WHERE username = ? OR email = ?',
+            'SELECT id, username, subscription_status, subscription_amount, subscription_created_at FROM users WHERE username = ? OR email = ? LIMIT 1',
             [username, username]
         );
+        const userData = normalizeQueryResult(userResult);
 
-        if (!userResult || userResult.length === 0) {
+        if (!userData || userData.length === 0) {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        const user = userResult[0];
+        const user = userData[0];
 
-        // Get subscription summary from users table
-        const summaryQuery = `
-            SELECT
-                COUNT(*) as total_subscriptions,
-                SUM(CASE WHEN subscription_status = 'active' THEN 1 ELSE 0 END) as active_subscriptions,
-                SUM(CASE WHEN subscription_status = 'paused' THEN 1 ELSE 0 END) as paused_subscriptions,
-                SUM(CASE WHEN subscription_status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_subscriptions,
-                SUM(CASE WHEN subscription_status = 'active' THEN subscription_amount ELSE 0 END) as total_active_value,
-                AVG(CASE WHEN subscription_status = 'active' THEN subscription_amount ELSE NULL END) as avg_subscription_value
-            FROM users
-            WHERE id = ?
-        `;
+        // Create summary data based on single user record
+        const summary = {
+            total_subscriptions: user.subscription_status ? 1 : 0,
+            active_subscriptions: user.subscription_status === 'active' ? 1 : 0,
+            paused_subscriptions: user.subscription_status === 'paused' ? 1 : 0,
+            cancelled_subscriptions: user.subscription_status === 'cancelled' ? 1 : 0,
+            expired_subscriptions: user.subscription_status === 'expired' ? 1 : 0,
+            total_active_value: user.subscription_status === 'active' ? (user.subscription_amount || 0) : 0,
+            avg_subscription_value: user.subscription_amount || 0
+        };
 
-        const [summary] = await db.query(summaryQuery, [user.id]);
-
-        // Get upcoming renewals from users table
-        const renewalsQuery = `
-            SELECT
-                id,
-                subscription_type as product_name,
-                subscription_end_date as renewal_date,
-                DATEDIFF(subscription_end_date, CURDATE()) as days_until_renewal,
-                subscription_amount as renewal_amount
-            FROM users
-            WHERE id = ?
-                AND subscription_status = 'active'
-                AND subscription_end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
-            ORDER BY subscription_end_date ASC
-        `;
-
-        const [upcomingRenewals] = await db.query(renewalsQuery, [user.id]);
+        // Get upcoming renewals if subscription is active
+        const upcomingRenewals = [];
+        if (user.subscription_status === 'active' && user.subscription_end_date) {
+            const endDate = new Date(user.subscription_end_date);
+            const now = new Date();
+            const daysUntilRenewal = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
+            
+            if (daysUntilRenewal <= 30 && daysUntilRenewal > 0) {
+                upcomingRenewals.push({
+                    subscriptionId: user.id,
+                    productName: user.subscription_type,
+                    renewalDate: user.subscription_end_date,
+                    daysUntilRenewal: daysUntilRenewal,
+                    renewalAmount: user.subscription_amount
+                });
+            }
+        }
 
         const response = {
             username,
-            summary: summary[0],
-            upcomingRenewals: upcomingRenewals.map(renewal => ({
-                subscriptionId: renewal.id,
-                productName: renewal.product_name,
-                renewalDate: renewal.renewal_date,
-                daysUntilRenewal: renewal.days_until_renewal,
-                renewalAmount: renewal.renewal_amount
-            })),
+            summary: summary,
+            upcomingRenewals: upcomingRenewals,
             cache: true,
             timestamp: new Date().toISOString()
         };
@@ -261,29 +344,34 @@ router.get('/api/subscriptions/summary/:username', cacheMiddleware.cacheUserData
     }
 });
 
-// Helper function to validate subscription state
+// Helper function to validate subscription state for pause
 async function validateSubscriptionForPause(username) {
-    const [currentSub] = await db.query(
-        'SELECT subscription_status, subscription_end_date FROM users WHERE username = ?',
+    const result = await db.query(
+        'SELECT subscription_status, subscription_end_date FROM users WHERE username = ? LIMIT 1',
         [username]
     );
+    const userData = normalizeQueryResult(result);
 
-    if (!currentSub) {
+    if (!userData || userData.length === 0) {
         return { valid: false, error: 'Subscription not found' };
     }
 
+    const currentSub = userData[0];
+
     if (currentSub.subscription_status !== 'active') {
-        return { valid: false, error: `Cannot pause subscription. Current status: ${currentSub.subscription_status}. Only active subscriptions can be paused.` };
+        return { 
+            valid: false, 
+            error: `Cannot pause subscription. Current status: ${currentSub.subscription_status}. Only active subscriptions can be paused.` 
+        };
     }
 
-    // Check if trying to pause within 5 hours of delivery
-    const now = new Date();
-    const deliveryTime = new Date(currentSub.subscription_end_date);
-    deliveryTime.setHours(6, 0, 0, 0); // Assuming delivery at 6 AM
-    const hoursDiff = (deliveryTime - now) / (1000 * 60 * 60);
-
-    if (hoursDiff < 5 && hoursDiff > 0) {
-        return { valid: false, error: 'Cannot pause subscription within 5 hours of delivery time' };
+    // Check if subscription has expired
+    if (currentSub.subscription_end_date) {
+        const endDate = new Date(currentSub.subscription_end_date);
+        const now = new Date();
+        if (endDate <= now) {
+            return { valid: false, error: 'Cannot pause expired subscription' };
+        }
     }
 
     return { valid: true, subscription: currentSub };
@@ -291,27 +379,45 @@ async function validateSubscriptionForPause(username) {
 
 // Helper function to validate subscription for resume
 async function validateSubscriptionForResume(username) {
-    const [currentSub] = await db.query(
-        'SELECT subscription_status, paused_at, subscription_end_date FROM users WHERE username = ?',
+    const result = await db.query(
+        'SELECT subscription_status, paused_at, subscription_end_date FROM users WHERE username = ? LIMIT 1',
         [username]
     );
+    const userData = normalizeQueryResult(result);
 
-    if (!currentSub) {
+    if (!userData || userData.length === 0) {
         return { valid: false, error: 'Subscription not found' };
     }
 
+    const currentSub = userData[0];
+
     if (currentSub.subscription_status !== 'paused') {
-        return { valid: false, error: `Cannot resume subscription. Current status: ${currentSub.subscription_status}. Only paused subscriptions can be resumed.` };
+        return { 
+            valid: false, 
+            error: `Cannot resume subscription. Current status: ${currentSub.subscription_status}. Only paused subscriptions can be resumed.` 
+        };
     }
 
     if (!currentSub.paused_at) {
-        return { valid: false, error: 'Subscription is marked as paused but has no pause timestamp. Please contact support.' };
+        return { 
+            valid: false, 
+            error: 'Subscription is marked as paused but has no pause timestamp. Please contact support.' 
+        };
+    }
+
+    // Check if subscription has expired
+    if (currentSub.subscription_end_date) {
+        const endDate = new Date(currentSub.subscription_end_date);
+        const now = new Date();
+        if (endDate <= now) {
+            return { valid: false, error: 'Cannot resume expired subscription' };
+        }
     }
 
     return { valid: true, subscription: currentSub };
 }
 
-// Pause subscription endpoint (updated for users table)
+// Pause subscription endpoint
 router.put('/subscriptions/:id/pause', async (req, res) => {
     try {
         const subscriptionId = req.params.id;
@@ -321,27 +427,28 @@ router.put('/subscriptions/:id/pause', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Username is required' });
         }
 
-        console.log(`🔄 Attempting to pause subscription for user: ${username}`);
+        console.log(`Attempting to pause subscription for user: ${username}`);
 
         // Validate subscription state
         const validation = await validateSubscriptionForPause(username);
         if (!validation.valid) {
-            console.log(`❌ Pause validation failed: ${validation.error}`);
+            console.log(`Pause validation failed: ${validation.error}`);
             return res.status(400).json({ success: false, message: validation.error });
         }
 
         // Update subscription status to paused and set paused_at timestamp
         const updateResult = await db.query(
-            'UPDATE users SET subscription_status = ?, paused_at = CURRENT_TIMESTAMP WHERE username = ? AND subscription_status = ?',
+            'UPDATE users SET subscription_status = ?, paused_at = NOW(), subscription_updated_at = NOW() WHERE username = ? AND subscription_status = ?',
             ['paused', username, 'active']
         );
+        const result = normalizeQueryResult(updateResult);
 
-        if (updateResult.affectedRows === 0) {
-            console.log(`❌ Failed to pause subscription for user: ${username}`);
+        if (result.affectedRows === 0) {
+            console.log(`Failed to pause subscription for user: ${username}`);
             return res.status(400).json({ success: false, message: 'Failed to pause subscription' });
         }
 
-        console.log(`✅ Successfully paused subscription for user: ${username}`);
+        console.log(`Successfully paused subscription for user: ${username}`);
         res.json({ success: true, message: 'Subscription paused successfully' });
     } catch (error) {
         console.error('Error pausing subscription:', error);
@@ -349,7 +456,7 @@ router.put('/subscriptions/:id/pause', async (req, res) => {
     }
 });
 
-// Resume subscription endpoint (updated for users table)
+// Resume subscription endpoint
 router.put('/subscriptions/:id/resume', async (req, res) => {
     try {
         const subscriptionId = req.params.id;
@@ -359,37 +466,45 @@ router.put('/subscriptions/:id/resume', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Username is required' });
         }
 
-        console.log(`🔄 Attempting to resume subscription for user: ${username}`);
+        console.log(`Attempting to resume subscription for user: ${username}`);
 
         // Validate subscription state
         const validation = await validateSubscriptionForResume(username);
         if (!validation.valid) {
-            console.log(`❌ Resume validation failed: ${validation.error}`);
+            console.log(`Resume validation failed: ${validation.error}`);
             return res.status(400).json({ success: false, message: validation.error });
         }
 
         const { subscription } = validation;
 
         // Calculate paused days
-        const pausedAt = new Date(subscription.paused_at);
-        const now = new Date();
-        const pausedDays = Math.ceil((now - pausedAt) / (1000 * 60 * 60 * 24));
+        let pausedDays = 0;
+        if (subscription.paused_at) {
+            const pausedAt = new Date(subscription.paused_at);
+            const now = new Date();
+            pausedDays = Math.ceil((now - pausedAt) / (1000 * 60 * 60 * 24));
+        }
 
-        console.log(`📅 Subscription was paused for ${pausedDays} days`);
+        console.log(`Subscription was paused for ${pausedDays} days`);
 
         // Update subscription status to active and set resumed_at timestamp
         const updateResult = await db.query(
-            'UPDATE users SET subscription_status = ?, resumed_at = CURRENT_TIMESTAMP, total_paused_days = total_paused_days + ? WHERE username = ? AND subscription_status = ?',
+            'UPDATE users SET subscription_status = ?, resumed_at = NOW(), total_paused_days = COALESCE(total_paused_days, 0) + ?, subscription_updated_at = NOW() WHERE username = ? AND subscription_status = ?',
             ['active', pausedDays, username, 'paused']
         );
+        const result = normalizeQueryResult(updateResult);
 
-        if (updateResult.affectedRows === 0) {
-            console.log(`❌ Failed to resume subscription for user: ${username}`);
+        if (result.affectedRows === 0) {
+            console.log(`Failed to resume subscription for user: ${username}`);
             return res.status(400).json({ success: false, message: 'Failed to resume subscription' });
         }
 
-        console.log(`✅ Successfully resumed subscription for user: ${username}`);
-        res.json({ success: true, message: 'Subscription resumed successfully' });
+        console.log(`Successfully resumed subscription for user: ${username}`);
+        res.json({ 
+            success: true, 
+            message: 'Subscription resumed successfully',
+            pausedDays: pausedDays
+        });
     } catch (error) {
         console.error('Error resuming subscription:', error);
         res.status(500).json({ success: false, message: 'Failed to resume subscription' });
