@@ -1,34 +1,22 @@
-# Subscription End Date and Remaining Days Fix
+# TODO: Fix Subscription End Date Not Being Set
 
-## Issue
-End date and remaining days are not being displayed properly in the subscription system.
+## Information Gathered
+- Subscription creation code calculates endDate based on duration (6days = +7 days, 15days = +17 days)
+- Update query includes subscription_end_date in SET clause with endDateStr parameter
+- Debug test shows subscriptions created but subscription_end_date is null in database
+- Database schema and triggers need to be checked for potential overrides
 
-## Root Cause
-The `subscription_end_date` field in the `users` table contains incorrect values (NULL or 1970-01-01), causing the `DATEDIFF` calculation to return incorrect remaining days.
+## Plan
+- [ ] Check database schema for subscription_end_date column
+- [ ] Check for database triggers that might override subscription_end_date
+- [ ] Add debug logging to subscription creation route
+- [ ] Test the fix with debug_subscription_test.js
+- [ ] Remove debug logging after confirming fix
 
-## Files Created
-- `backend/fix-users-subscription-end-dates.sql` - SQL script to fix the database
-- `backend/fix-users-subscription-end-dates.js` - Node.js script to execute the fix
+## Dependent Files
+- backend/routes/subscriptionRoutes-fixed.js (add debug logging)
+- Database schema/trigger files (if issues found)
 
-## Steps to Fix
-
-### 1. Run the Database Fix Script
-```bash
-cd backend
-node fix-users-subscription-end-dates.js
-```
-
-### 2. Verify the Fix
-- Check that subscription end dates are now properly calculated
-- Verify that remaining days display correctly in both subscription and profile pages
-- Test with existing subscriptions to ensure they show correct remaining days
-
-### 3. Test the Application
-- Navigate to subscription page
-- Navigate to profile page
-- Verify end dates and remaining days are displayed correctly
-
-## Expected Results
-- Subscription end dates should show proper future dates instead of 1970-01-01
-- Remaining days should display positive numbers for active subscriptions
-- Expired subscriptions should show "Expired" or 0 days remaining
+## Followup Steps
+- Run debug test to verify subscription_end_date is set correctly
+- Clean up debug logging
