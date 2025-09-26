@@ -245,7 +245,7 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
             paused_at: user.paused_at,
             resumed_at: user.resumed_at,
             total_paused_days: user.total_paused_days || 0,
-            remaining_days: remainingDays
+            remaining_days: Math.max(0, remainingDays)
         };
 
         // Determine if subscription is considered "active"
