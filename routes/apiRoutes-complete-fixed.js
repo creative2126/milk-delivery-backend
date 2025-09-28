@@ -83,7 +83,7 @@ router.get('/profile', cacheMiddleware.cacheUserData(600), async (req, res) => {
             // Subscription data from users table
             subscription_type: user.subscription_type || null,
             subscription_duration: user.subscription_duration || null,
-            subscription_status: user.subscription_status || null,
+            status: user.subscription_status || null,
             subscription_start_date: user.subscription_start_date || user.subscription_created_at || null,
             subscription_end_date: user.subscription_end_date || null,
             subscription_address: user.subscription_address || null,
@@ -233,7 +233,7 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
             subscription_type: user.subscription_type,
             subscription_duration: user.subscription_duration,
             subscription_amount: user.subscription_amount,
-            subscription_status: user.subscription_status,
+            status: user.subscription_status,
             subscription_start_date: user.subscription_start_date || user.subscription_created_at,
             subscription_end_date: user.subscription_end_date,
             subscription_address: user.subscription_address,
@@ -245,7 +245,7 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
             paused_at: user.paused_at,
             resumed_at: user.resumed_at,
             total_paused_days: user.total_paused_days || 0,
-            remaining_days: remainingDays
+            remaining_days: Math.max(0, remainingDays)
         };
 
         // Determine if subscription is considered "active"

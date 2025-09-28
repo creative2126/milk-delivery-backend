@@ -151,7 +151,7 @@ router.get('/remaining/:username', async (req, res) => {
                 subscription_type: subscription.subscription_type,
                 subscription_duration: subscription.subscription_duration,
                 subscription_amount: subscription.subscription_amount,
-                subscription_status: subscription.subscription_status,
+                status: subscription.subscription_status,
                 subscription_start_date: subscription.subscription_start_date,
                 subscription_end_date: subscription.subscription_end_date,
                 remaining_days: subscription.remaining_days
@@ -754,9 +754,19 @@ router.put('/:id/pause', async (req, res) => {
         const userId = req.params.id;
 
         // Get current subscription
-        const [currentUser] = await db.query(`
+        const currentUserResult = await db.query(`
             SELECT subscription_status FROM users WHERE id = ?
         `, [userId]);
+
+        // Handle different database response formats
+        let currentUser;
+        if (Array.isArray(currentUserResult) && Array.isArray(currentUserResult[0])) {
+            currentUser = currentUserResult[0];
+        } else if (Array.isArray(currentUserResult)) {
+            currentUser = currentUserResult;
+        } else {
+            currentUser = [currentUserResult];
+        }
 
         if (!currentUser || currentUser.length === 0) {
             return res.status(404).json({ success: false, error: 'User not found' });

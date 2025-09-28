@@ -3,10 +3,10 @@
 
 const Razorpay = require('razorpay');
 
-// Test credentials from RAZORPAY-CONFIG.md
+// Live credentials
 const TEST_CREDENTIALS = {
-  key_id: 'rzp_test_RF8OERr5RnBors',
-  key_secret: 'B704L3EETDXCaK6zCEXAqutu'
+  key_id: 'rzp_live_RMt4yU66tg8tUM',
+  key_secret: 'bZ6Jm3DCfU4i0j1txZyN7fxw'
 };
 
 // Get credentials from environment variables or use test credentials
