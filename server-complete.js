@@ -1,6 +1,3 @@
-
-
-
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -23,6 +20,7 @@ const enhancedSubscriptionRoutes = require('./routes/enhancedSubscriptionRoutes'
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const razorpayConfigRoutes = require('./routes/razorpay-config');
+const verifyPaymentRoutes = require('./routes/verify-payment-enhanced');
 
 const { authenticateToken } = require('./middleware/auth');
 
@@ -204,6 +202,7 @@ app.use('/api/enhanced-subscriptions', enhancedSubscriptionRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', razorpayConfigRoutes);
+app.use('/api', verifyPaymentRoutes);
 
 // -------------------- Health Check --------------------
 app.get('/health', async (req, res) => {
