@@ -70,7 +70,9 @@ app.use((req, res, next) => {
           "https://cdnjs.cloudflare.com",
           "https://unpkg.com",
           "https://api.razorpay.com",
-          "https://milk-delivery-backend.onrender.com"
+          "https://milk-delivery-backend.onrender.com",
+          "https://freshndorganic.com",
+          "https://www.freshndorganic.com"
         ],
         frameSrc: ["'self'", "https://api.razorpay.com"]
       }
@@ -79,20 +81,45 @@ app.use((req, res, next) => {
 });
 
 // -------------------- Core Middleware --------------------
+// FIXED CORS Configuration
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000",
-      "http://localhost:3001",
-      "https://freshndorganic.com"
-    ],
-    credentials: true
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps, Postman, or curl)
+      if (!origin) return callback(null, true);
+      
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'https://freshndorganic.com',
+        'https://www.freshndorganic.com'
+      ];
+      
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        callback(null, true);
+      } else {
+        console.log('⚠️ CORS blocked origin:', origin);
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    maxAge: 600 // Cache preflight for 10 minutes
   })
 );
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(compression());
 app.use(morgan('combined', { stream: { write: msg => logger.info(msg.trim()) } }));
+
+// Log all incoming requests for debugging
+app.use((req, res, next) => {
+  console.log(`📥 ${req.method} ${req.path} - Origin: ${req.headers.origin || 'No origin'}`);
+  next();
+});
 
 // -------------------- Caching & Rate Limiting --------------------
 app.use('/api', CacheMiddleware.cacheGet(300));
@@ -117,6 +144,9 @@ app.use('/api', async (req, res, next) => {
 app.post('/api/users', async (req, res) => {
   try {
     const { username, password, name, phone, email } = req.body;
+    
+    console.log('📝 Registration attempt:', { username, email });
+    
     if (!username || !password || !email) {
       return res.status(400).json({ error: 'Username, password, and email are required' });
     }
@@ -127,6 +157,7 @@ app.post('/api/users', async (req, res) => {
       [username, email]
     );
     if (Array.isArray(existing) && existing.length > 0) {
+      console.log('❌ User already exists:', username);
       return res.status(409).json({ error: 'User already exists' });
     }
 
@@ -136,9 +167,10 @@ app.post('/api/users', async (req, res) => {
       [username, hashedPassword, name, phone, email]
     );
 
+    console.log('✅ User registered successfully:', username);
     res.status(201).json({ message: 'User registered successfully' });
   } catch (error) {
-    console.error('Register error:', error);
+    console.error('❌ Register error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -147,6 +179,9 @@ app.post('/api/users', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
+    
+    console.log('🔐 Login attempt:', username);
+    
     if (!username || !password) {
       return res.status(400).json({ success: false, error: 'Username and password required' });
     }
@@ -162,11 +197,13 @@ app.post('/api/login', async (req, res) => {
     }
 
     if (!user) {
+      console.log('❌ User not found:', username);
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
+      console.log('❌ Invalid password for user:', username);
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
@@ -181,6 +218,8 @@ app.post('/api/login', async (req, res) => {
       { expiresIn: '24h' }
     );
 
+    console.log('✅ Login successful:', username);
+    
     res.json({
       success: true,
       token,
@@ -188,21 +227,23 @@ app.post('/api/login', async (req, res) => {
       userEmail: user.email
     });
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('❌ Login error:', error);
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
 
 // -------------------- API Routes --------------------
+console.log('🔗 Registering API routes...');
 app.use('/api/subscriptions', subscriptionRoutesFixed);
 // app.use('/api/subscriptions/v2', authenticateToken, subscriptionRoutesUpdated); // Commented out due to Sequelize dependency issues - subscriptionRoutesUpdated is not defined
 app.use('/api', apiRoutes); // Using complete API routes with pause/resume functionality
 app.use('/api/optimized', optimizedRoutes);
 app.use('/api/enhanced-subscriptions', enhancedSubscriptionRoutes);
 app.use('/api/analytics', analyticsRoutes);
-app.use('/api/admin', adminRoutes);
+app.use('/api/admin', adminRoutes); // ✅ Admin routes registered
 app.use('/api', razorpayConfigRoutes);
 app.use('/api', verifyPaymentRoutes);
+console.log('✅ API routes registered successfully');
 
 // -------------------- Health Check --------------------
 app.get('/health', async (req, res) => {
@@ -221,7 +262,8 @@ app.get('/health', async (req, res) => {
     res.json({
       status: 'healthy',
       database: isConnected ? 'connected' : 'disconnected',
-      timestamp: new Date()
+      timestamp: new Date(),
+      environment: process.env.NODE_ENV || 'development'
     });
   } catch (error) {
     res.status(503).json({ status: 'unhealthy', error: error.message });
@@ -253,7 +295,8 @@ app.get('/admin-fixed', (req, res) => {
 
 // -------------------- 404 Handlers (moved to end) --------------------
 app.use('/api/*', (req, res) => {
-  res.status(404).json({ error: 'API route not found' });
+  console.log('❌ 404 API route not found:', req.path);
+  res.status(404).json({ error: 'API route not found', path: req.path });
 });
 
 // Handle non-API routes (frontend routes)
@@ -268,13 +311,22 @@ app.use('*', (req, res, next) => {
 // -------------------- Start Server --------------------
 async function startServer() {
   try {
+    console.log('🚀 Starting server...');
+    console.log('📦 Environment:', process.env.NODE_ENV || 'development');
+    console.log('🔑 JWT Secret:', process.env.JWT_SECRET ? 'Set' : 'Using default');
+    console.log('💳 Razorpay Key ID:', process.env.RAZORPAY_KEY_ID ? 'Set ✅' : 'Missing ❌');
+    console.log('🔐 Razorpay Secret:', process.env.RAZORPAY_KEY_SECRET ? 'Set ✅' : 'Missing ❌');
+    
     await databaseValidator.validateSchema();
     const server = app.listen(PORT, () => {
       logger.info(`🚀 Server running on port ${PORT}`);
+      console.log(`✅ Server is ready and listening on port ${PORT}`);
+      console.log(`🌐 API Base URL: http://localhost:${PORT}/api`);
     });
     server.timeout = 30000;
   } catch (error) {
     logger.error('Failed to start server:', error);
+    console.error('❌ Server startup failed:', error);
     process.exit(1);
   }
 }
