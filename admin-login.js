@@ -1,21 +1,18 @@
 console.log('Admin login page loaded');
 
-// Get API base URL - matches pattern from payment.js
+// Get API base URL
 function getApiBaseUrl() {
     const productionBackendUrl = 'https://milk-delivery-backend.onrender.com';
     
-    // Check if we're in production (freshndorganic.com domain)
     if (window.location.hostname === 'freshndorganic.com' ||
         window.location.hostname === 'www.freshndorganic.com') {
         return productionBackendUrl;
     }
     
-    // For local development
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
         return 'http://localhost:3001';
     }
     
-    // Fallback
     return '';
 }
 
@@ -29,7 +26,6 @@ document.getElementById('loginForm').addEventListener('submit', async e => {
     const password = document.getElementById('password').value;
     const errorDiv = document.getElementById('errorMessage');
 
-    // Clear previous error
     errorDiv.style.display = 'none';
     errorDiv.textContent = '';
 
@@ -55,11 +51,10 @@ document.getElementById('loginForm').addEventListener('submit', async e => {
             localStorage.setItem('adminToken', data.token);
             localStorage.setItem('userName', data.user.username);
             
-            // Redirect to admin dashboard
             window.location.href = '/admin-fixed.html';
         } else {
             console.error('Login failed:', data.message);
-            errorDiv.textContent = data.message || 'Login failed';
+            errorDiv.textContent = data.message || data.error || 'Login failed';
             errorDiv.style.display = 'block';
         }
     } catch (error) {
