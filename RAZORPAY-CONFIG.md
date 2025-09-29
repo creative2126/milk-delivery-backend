@@ -3,8 +3,8 @@
 ## Test Credentials
 The application has been updated with new Razorpay test credentials:
 
-- **Key ID**: `rzp_test_amonk8Ow16WyvE`
-- **Secret Key**: `NPoKf4KIga8XfW369c9ygs37`
+- **Key ID**: `rzp_live_RMt4yU66tg8tUM`
+- **Secret Key**: `bZ6Jm3DCfU4i0j1txZyN7fxw`
 
 ## Configuration Files
 The credentials are configured in:
