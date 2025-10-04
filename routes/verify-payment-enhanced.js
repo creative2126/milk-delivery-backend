@@ -212,28 +212,45 @@ router.post('/verify-payment', async (req, res) => {
       days: daysToAdd
     });
 
-    // Step 5: Check if user exists
+    // Step 5: Check if user exists - CRITICAL FIX: Search in multiple columns
     console.log('Checking if user exists...');
+    console.log('Searching for username/email/name:', username);
+    
     let userExists = false;
+    let foundUserId = null;
+    let foundUserData = null;
+    
     try {
       const userResult = await db.execute(
-        'SELECT id, username FROM users WHERE username = ?', 
-        [username]
+        'SELECT id, username, email, name FROM users WHERE username = ? OR email = ? OR name = ?', 
+        [username, username, username]
       );
       
       const userRows = Array.isArray(userResult) && userResult.length > 0 ? userResult[0] : [];
       userExists = Array.isArray(userRows) && userRows.length > 0;
       
+      if (userExists) {
+        foundUserId = userRows[0].id;
+        foundUserData = {
+          id: userRows[0].id,
+          username: userRows[0].username,
+          email: userRows[0].email,
+          name: userRows[0].name
+        };
+      }
+      
       console.log('User check result:', {
-        username,
+        searchedFor: username,
         exists: userExists,
-        foundUser: userExists ? userRows[0].username : null
+        foundUser: foundUserData
       });
 
       if (!userExists) {
+        console.error('User not found in database');
         return res.status(400).json({
           success: false,
-          message: 'User not found. Please register first.'
+          message: 'User not found. Please register first.',
+          searched_for: username
         });
       }
     } catch (userCheckError) {
@@ -254,6 +271,7 @@ router.post('/verify-payment', async (req, res) => {
 
     // Step 7: Update user subscription in database
     console.log('Updating subscription in database...');
+    console.log('Will update user with ID:', foundUserId);
     const updateStart = Date.now();
 
     try {
@@ -273,20 +291,22 @@ router.post('/verify-payment', async (req, res) => {
           subscription_created_at = NOW(),
           subscription_updated_at = NOW(),
           updated_at = NOW()
-         WHERE username = ?`,
+         WHERE username = ? OR email = ? OR name = ?`,
         [
-          subscription_type,           // subscription_type
-          duration,                     // subscription_duration
-          'active',                     // subscription_status
-          formatDateForMySQL(startDate), // subscription_start_date
-          formatDateForMySQL(endDate),   // subscription_end_date
-          amount,                       // subscription_amount
-          amount,                       // subscription_total_amount
-          fullAddress,                  // subscription_address
-          building_name || '',          // subscription_building_name
-          flat_number || '',            // subscription_flat_number
-          razorpay_payment_id,          // subscription_payment_id
-          username                      // WHERE username
+          subscription_type,              // subscription_type
+          duration,                        // subscription_duration
+          'active',                        // subscription_status
+          formatDateForMySQL(startDate),   // subscription_start_date
+          formatDateForMySQL(endDate),     // subscription_end_date
+          amount,                          // subscription_amount
+          amount,                          // subscription_total_amount
+          fullAddress,                     // subscription_address
+          building_name || '',             // subscription_building_name
+          flat_number || '',               // subscription_flat_number
+          razorpay_payment_id,             // subscription_payment_id
+          username,                        // WHERE username = ?
+          username,                        // OR email = ?
+          username                         // OR name = ?
         ]
       );
 
@@ -298,7 +318,7 @@ router.post('/verify-payment', async (req, res) => {
       });
 
       if (updateResult.affectedRows === 0) {
-        throw new Error('UPDATE affected 0 rows - user not found or data unchanged');
+        throw new Error('UPDATE affected 0 rows - this should not happen after user check passed');
       }
 
       console.log('Subscription saved successfully for user:', username);
