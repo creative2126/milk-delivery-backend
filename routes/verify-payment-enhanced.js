@@ -212,17 +212,22 @@ router.post('/verify-payment', async (req, res) => {
       days: daysToAdd
     });
 
-    // Step 5: Check if user exists - CRITICAL FIX: Search in multiple columns
+    // Step 5: Check if user exists - CASE-INSENSITIVE SEARCH
     console.log('Checking if user exists...');
-    console.log('Searching for username/email/name:', username);
+    console.log('Searching for username/email/name (case-insensitive):', username);
     
     let userExists = false;
     let foundUserId = null;
     let foundUserData = null;
     
     try {
+      // Use LOWER() for case-insensitive comparison
       const userResult = await db.execute(
-        'SELECT id, username, email, name FROM users WHERE username = ? OR email = ? OR name = ?', 
+        `SELECT id, username, email, name 
+         FROM users 
+         WHERE LOWER(username) = LOWER(?) 
+            OR LOWER(email) = LOWER(?) 
+            OR LOWER(name) = LOWER(?)`, 
         [username, username, username]
       );
       
@@ -250,7 +255,8 @@ router.post('/verify-payment', async (req, res) => {
         return res.status(400).json({
           success: false,
           message: 'User not found. Please register first.',
-          searched_for: username
+          searched_for: username,
+          hint: 'Check if the username matches your registration'
         });
       }
     } catch (userCheckError) {
@@ -269,7 +275,7 @@ router.post('/verify-payment', async (req, res) => {
 
     console.log('Full address:', fullAddress);
 
-    // Step 7: Update user subscription in database
+    // Step 7: Update user subscription in database - CASE-INSENSITIVE WHERE
     console.log('Updating subscription in database...');
     console.log('Will update user with ID:', foundUserId);
     const updateStart = Date.now();
@@ -291,7 +297,9 @@ router.post('/verify-payment', async (req, res) => {
           subscription_created_at = NOW(),
           subscription_updated_at = NOW(),
           updated_at = NOW()
-         WHERE username = ? OR email = ? OR name = ?`,
+         WHERE LOWER(username) = LOWER(?) 
+            OR LOWER(email) = LOWER(?) 
+            OR LOWER(name) = LOWER(?)`,
         [
           subscription_type,              // subscription_type
           duration,                        // subscription_duration
@@ -304,9 +312,9 @@ router.post('/verify-payment', async (req, res) => {
           building_name || '',             // subscription_building_name
           flat_number || '',               // subscription_flat_number
           razorpay_payment_id,             // subscription_payment_id
-          username,                        // WHERE username = ?
-          username,                        // OR email = ?
-          username                         // OR name = ?
+          username,                        // WHERE LOWER(username) = LOWER(?)
+          username,                        // OR LOWER(email) = LOWER(?)
+          username                         // OR LOWER(name) = LOWER(?)
         ]
       );
 
