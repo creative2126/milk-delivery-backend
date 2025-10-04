@@ -178,26 +178,41 @@ router.post('/verify-payment', async (req, res) => {
     });
 
     // Check user existence by email (case-insensitive)
-    console.log('Checking if user exists with email:', username);
+    console.log('=== USER LOOKUP DEBUG ===');
+    console.log('Searching for user with email:', username);
+    console.log('Email type:', typeof username);
+    console.log('Email length:', username ? username.length : 'null');
+    
     const [rows] = await db.execute(
       `SELECT id, username, email, name FROM users WHERE LOWER(email) = LOWER(?)`,
       [username]
     );
 
-    if (rows.length === 0) {
-      console.error('User not found in database');
+    console.log('Query returned rows:', rows ? rows.length : 'null');
+    console.log('Raw rows data:', JSON.stringify(rows));
+
+    if (!rows || rows.length === 0) {
+      console.error('❌ User not found in database');
+      console.error('Searched for email:', username);
+      
+      // Try to find if user exists with different criteria
+      const [allUsers] = await db.execute(`SELECT email FROM users LIMIT 10`);
+      console.error('Sample emails in database:', allUsers.map(u => u.email));
+      
       return res.status(400).json({ 
         success: false, 
         message: 'User not found. Please register first.', 
-        searched_for: username 
+        searched_for: username,
+        hint: 'Check if this email exists in your database'
       });
     }
 
     const foundUser = rows[0];
-    console.log('Found user:', { 
+    console.log('✅ Found user:', { 
       id: foundUser.id, 
       email: foundUser.email, 
-      name: foundUser.name 
+      name: foundUser.name,
+      username: foundUser.username
     });
 
     // Use the pre-formatted address from frontend (already includes coordinates)
