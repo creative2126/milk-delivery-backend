@@ -183,20 +183,41 @@ router.post('/verify-payment', async (req, res) => {
     console.log('Email type:', typeof username);
     console.log('Email length:', username ? username.length : 'null');
     
-    const [rows] = await db.execute(
+    // FIXED: Don't destructure, get the full result
+    const result = await db.execute(
       `SELECT id, username, email, name FROM users WHERE LOWER(email) = LOWER(?)`,
       [username]
     );
 
-    console.log('Query returned rows:', rows ? rows.length : 'null');
-    console.log('Raw rows data:', JSON.stringify(rows));
+    console.log('Database result structure:', typeof result);
+    console.log('Result is array?', Array.isArray(result));
+    console.log('Result[0] type:', typeof result[0]);
+    console.log('Full result:', JSON.stringify(result));
+
+    // Handle different response formats from mysql2
+    let rows;
+    if (Array.isArray(result) && Array.isArray(result[0])) {
+      // Standard mysql2 format: [[rows], fields]
+      rows = result[0];
+    } else if (Array.isArray(result)) {
+      // Direct array of rows
+      rows = result;
+    } else {
+      // Unknown format
+      console.error('Unexpected database result format');
+      rows = [];
+    }
+
+    console.log('Processed rows:', rows);
+    console.log('Query returned rows count:', rows ? rows.length : 0);
 
     if (!rows || rows.length === 0) {
       console.error('❌ User not found in database');
       console.error('Searched for email:', username);
       
       // Try to find if user exists with different criteria
-      const [allUsers] = await db.execute(`SELECT email FROM users LIMIT 10`);
+      const allUsersResult = await db.execute(`SELECT email FROM users LIMIT 10`);
+      const allUsers = Array.isArray(allUsersResult[0]) ? allUsersResult[0] : allUsersResult;
       console.error('Sample emails in database:', allUsers.map(u => u.email));
       
       return res.status(400).json({ 
@@ -260,14 +281,17 @@ router.post('/verify-payment', async (req, res) => {
       ]
     );
 
+    // Handle update result format
+    const updateInfo = Array.isArray(updateResult) ? updateResult[0] : updateResult;
+
     console.log('UPDATE completed in', Date.now() - updateStart, 'ms');
     console.log('Update result:', {
-      affectedRows: updateResult.affectedRows,
-      changedRows: updateResult.changedRows,
-      warningCount: updateResult.warningCount
+      affectedRows: updateInfo.affectedRows,
+      changedRows: updateInfo.changedRows,
+      warningCount: updateInfo.warningCount
     });
 
-    if (updateResult.affectedRows === 0) {
+    if (updateInfo.affectedRows === 0) {
       throw new Error('UPDATE affected 0 rows - user not found after verification');
     }
 
@@ -317,7 +341,7 @@ router.get('/verify-payment/status/:payment_id', async (req, res) => {
     
     console.log('Checking payment status for:', payment_id);
 
-    const [rows] = await db.execute(
+    const result = await db.execute(
       `SELECT subscription_type, subscription_duration, subscription_status, 
               subscription_start_date, subscription_end_date, subscription_amount,
               subscription_address, subscription_building_name, subscription_flat_number,
@@ -325,6 +349,8 @@ router.get('/verify-payment/status/:payment_id', async (req, res) => {
        FROM users WHERE subscription_payment_id = ?`,
       [payment_id]
     );
+
+    const rows = Array.isArray(result[0]) ? result[0] : result;
 
     if (rows.length === 0) {
       return res.status(404).json({ 
