@@ -18,13 +18,13 @@ const razorpay = new Razorpay({
 const formatDateForMySQL = (date) => date.toISOString().slice(0, 19).replace('T', ' ');
 
 // Helper to calculate subscription amount
-// TESTING MODE: All prices set to ₹1
+
 function calculateAmount(type, duration) {
   const prices = {
-    '500ml': { '6days': 1, '15days': 1 },
-    '1000ml': { '6days': 1, '15days': 1 }
+    '500ml': { '6days': 300, '15days': 750 },
+    '1000ml': { '6days': 570, '15days': 1425 }
   };
-  return prices[type]?.[duration] || 1; // Default to 1 for testing
+  return prices[type]?.[duration] || 0;
 }
 
 // ----------------- CREATE ORDER -----------------
