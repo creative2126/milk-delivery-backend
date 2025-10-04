@@ -18,12 +18,13 @@ const razorpay = new Razorpay({
 const formatDateForMySQL = (date) => date.toISOString().slice(0, 19).replace('T', ' ');
 
 // Helper to calculate subscription amount
+// TESTING MODE: All prices set to ₹1
 function calculateAmount(type, duration) {
   const prices = {
-    '500ml': { '6days': 300, '15days': 750 },
-    '1000ml': { '6days': 570, '15days': 1425 }
+    '500ml': { '6days': 1, '15days': 1 },
+    '1000ml': { '6days': 1, '15days': 1 }
   };
-  return prices[type]?.[duration] || 0;
+  return prices[type]?.[duration] || 1; // Default to 1 for testing
 }
 
 // ----------------- CREATE ORDER -----------------
@@ -47,15 +48,19 @@ router.post('/create-order', async (req, res) => {
       });
     }
 
+    // TESTING MODE: Use the amount sent from frontend (should be ₹1)
+    const testAmount = parseFloat(amount);
+    console.log('TESTING MODE: Using amount from request:', testAmount);
+
     const options = {
-      amount: Math.round(parseFloat(amount) * 100), // paise
+      amount: Math.round(testAmount * 100), // paise (₹1 = 100 paise)
       currency: 'INR',
       receipt: `receipt_${Date.now()}`,
       notes: { subscription_type, duration, username }
     };
 
     const order = await razorpay.orders.create(options);
-    console.log('Order created successfully:', order.id);
+    console.log('Order created successfully:', order.id, 'Amount:', order.amount, 'paise');
 
     res.json({
       success: true,
@@ -157,9 +162,9 @@ router.post('/verify-payment', async (req, res) => {
 
     console.log('Payment verified with Razorpay successfully');
 
-    // Calculate subscription details
+    // TESTING MODE: Calculate amount using test prices (₹1)
     const amount = calculateAmount(subscription_type, duration);
-    console.log('Calculated amount:', amount);
+    console.log('TESTING MODE - Calculated amount:', amount);
 
     const startDate = new Date();
     const daysToAdd = duration === '6days' ? 7 : 17;
