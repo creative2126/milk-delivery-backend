@@ -4,19 +4,14 @@ const crypto = require('crypto');
 const Razorpay = require('razorpay');
 const db = require('../db');
 
-// Import centralized Razorpay configuration
 const { getCredentials } = require('../razorpay-config');
-
-// Get credentials from centralized config
 const credentials = getCredentials();
 
-// Initialize Razorpay with centralized credentials
 const razorpay = new Razorpay({
   key_id: credentials.key_id,
   key_secret: credentials.key_secret
 });
 
-// POST /api/create-order - Create order before payment
 router.post('/create-order', async (req, res) => {
   try {
     const { amount, subscription_type, duration, username } = req.body;
@@ -30,7 +25,7 @@ router.post('/create-order', async (req, res) => {
     }
 
     const options = {
-      amount: Math.round(parseFloat(amount) * 100), // Convert to paise
+      amount: Math.round(parseFloat(amount) * 100),
       currency: 'INR',
       receipt: `receipt_${Date.now()}`,
       notes: {
@@ -60,7 +55,6 @@ router.post('/create-order', async (req, res) => {
   }
 });
 
-// POST /api/verify-payment - Enhanced verification
 router.post('/verify-payment', async (req, res) => {
   try {
     const { 
@@ -72,12 +66,13 @@ router.post('/verify-payment', async (req, res) => {
       address,
       building_name,
       flat_number,
+      landmark,
       latitude,
       longitude,
       username
     } = req.body;
 
-    // Enhanced validation with detailed error messages
+    // Validation
     const missingFields = [];
     if (!razorpay_order_id) missingFields.push('razorpay_order_id');
     if (!razorpay_payment_id) missingFields.push('razorpay_payment_id');
@@ -90,12 +85,11 @@ router.post('/verify-payment', async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Missing required payment verification fields',
-        missing_fields: missingFields,
-        received_data: req.body
+        missing_fields: missingFields
       });
     }
 
-    // Verify signature with enhanced error handling
+    // Verify signature
     try {
       const body = razorpay_order_id + "|" + razorpay_payment_id;
       const expectedSignature = crypto
@@ -103,16 +97,10 @@ router.post('/verify-payment', async (req, res) => {
         .update(body.toString())
         .digest('hex');
 
-      const isAuthentic = expectedSignature === razorpay_signature;
-
-      if (!isAuthentic) {
+      if (expectedSignature !== razorpay_signature) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid payment signature',
-          debug: {
-            expected: expectedSignature,
-            received: razorpay_signature
-          }
+          message: 'Invalid payment signature'
         });
       }
     } catch (signatureError) {
@@ -126,25 +114,20 @@ router.post('/verify-payment', async (req, res) => {
     // Verify payment with Razorpay
     try {
       const payment = await razorpay.payments.fetch(razorpay_payment_id);
-      
-      // Accept both authorized and captured statuses
       const validStatuses = ['authorized', 'captured'];
+      
       if (!validStatuses.includes(payment.status)) {
         return res.status(400).json({
           success: false,
           message: 'Payment not completed',
-          payment_status: payment.status,
-          valid_statuses: validStatuses
+          payment_status: payment.status
         });
       }
 
-      // Verify order ID matches
       if (payment.order_id !== razorpay_order_id) {
         return res.status(400).json({
           success: false,
-          message: 'Order ID mismatch',
-          expected_order: razorpay_order_id,
-          payment_order: payment.order_id
+          message: 'Order ID mismatch'
         });
       }
     } catch (paymentError) {
@@ -156,65 +139,60 @@ router.post('/verify-payment', async (req, res) => {
       });
     }
 
-    // Calculate amount based on subscription type and duration
     const amount = calculateAmount(subscription_type, duration);
 
-    // Check for existing active subscriptions in users table
+    // FIX: Check for existing active subscriptions - CORRECTED
+    let existingUser = [];
     try {
-      const [existingUser] = await db.execute(
+      const result = await db.execute(
         'SELECT id FROM users WHERE username = ? AND subscription_type = ? AND subscription_status = "active"',
         [username, subscription_type]
       );
+      
+      // CRITICAL FIX: Safely extract rows
+      existingUser = Array.isArray(result) && result.length > 0 ? result[0] : [];
+      
+      console.log('Subscription check result:', {
+        hasResult: !!result,
+        isArray: Array.isArray(existingUser),
+        length: existingUser.length
+      });
 
-      if (existingUser.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Active subscription already exists for this type'
-        });
-      }
     } catch (checkError) {
       console.error('Subscription check error:', checkError);
+      // Continue with empty array - don't block payment
+      existingUser = [];
+    }
+
+    // FIX: Safe length check
+    if (Array.isArray(existingUser) && existingUser.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Active subscription already exists for this type'
+      });
     }
 
     // Check if user exists
-    const [userRows] = await db.execute('SELECT id FROM users WHERE username = ?', [username]);
-    if (userRows.length === 0) {
+    const userResult = await db.execute('SELECT id FROM users WHERE username = ?', [username]);
+    const userRows = Array.isArray(userResult) && userResult.length > 0 ? userResult[0] : [];
+    
+    if (!Array.isArray(userRows) || userRows.length === 0) {
       return res.status(400).json({
         success: false,
         message: 'User not found. Please register first.'
       });
     }
 
-    // Calculate end date based on duration
+    // Calculate dates
     const startDate = new Date();
     let daysToAdd = 0;
-    if (duration === '6days') daysToAdd = 6;
-    else if (duration === '15days') daysToAdd = 15;
+    if (duration === '6days') daysToAdd = 7; // 6 + 1 free
+    else if (duration === '15days') daysToAdd = 17; // 15 + 2 free
+    
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + daysToAdd);
 
-    // Save subscription to users table
-    const subscriptionData = {
-      username,
-      subscription_type,
-      subscription_duration: duration,
-      subscription_status: 'active',
-      subscription_start_date: startDate,
-      subscription_end_date: endDate,
-      subscription_amount: amount,
-      subscription_address: address,
-      subscription_building_name: building_name,
-      subscription_flat_number: flat_number,
-      subscription_payment_id: razorpay_payment_id,
-      subscription_created_at: new Date(),
-      subscription_updated_at: new Date(),
-      paused_at: null,
-      resumed_at: null,
-      total_paused_days: 0,
-      latitude: parseFloat(latitude) || 0,
-      longitude: parseFloat(longitude) || 0
-    };
-
+    // Save subscription
     try {
       await db.execute(
         `UPDATE users SET
@@ -228,36 +206,35 @@ router.post('/verify-payment', async (req, res) => {
           subscription_building_name = ?,
           subscription_flat_number = ?,
           subscription_payment_id = ?,
-          subscription_created_at = ?,
-          subscription_updated_at = ?,
-          paused_at = ?,
-          resumed_at = ?,
-          total_paused_days = ?
+          subscription_created_at = NOW(),
+          subscription_updated_at = NOW(),
+          paused_at = NULL,
+          resumed_at = NULL,
+          total_paused_days = 0
          WHERE username = ?`,
         [
-          subscriptionData.subscription_type,
-          subscriptionData.subscription_duration,
-          subscriptionData.subscription_status,
-          subscriptionData.subscription_start_date,
-          subscriptionData.subscription_end_date,
-          subscriptionData.subscription_amount,
-          subscriptionData.subscription_address,
-          subscriptionData.subscription_building_name,
-          subscriptionData.subscription_flat_number,
-          subscriptionData.subscription_payment_id,
-          subscriptionData.subscription_created_at,
-          subscriptionData.subscription_updated_at,
-          subscriptionData.paused_at,
-          subscriptionData.resumed_at,
-          subscriptionData.total_paused_days,
+          subscription_type,
+          duration,
+          'active',
+          startDate,
+          endDate,
+          amount,
+          address || '',
+          building_name || '',
+          flat_number || '',
+          razorpay_payment_id,
           username
         ]
       );
 
+      console.log('Subscription saved successfully for user:', username);
+
       res.json({
         success: true,
         message: 'Payment verified and subscription saved successfully',
-        subscription: subscriptionData
+        subscription_id: razorpay_payment_id,
+        start_date: startDate,
+        end_date: endDate
       });
 
     } catch (dbError) {
@@ -280,12 +257,11 @@ router.post('/verify-payment', async (req, res) => {
   }
 });
 
-// GET /api/verify-payment/status/:payment_id
 router.get('/verify-payment/status/:payment_id', async (req, res) => {
   try {
     const { payment_id } = req.params;
     
-    const [users] = await db.execute(
+    const result = await db.execute(
       `SELECT 
         subscription_type, subscription_duration, subscription_status, 
         subscription_start_date, subscription_end_date, subscription_amount,
@@ -296,34 +272,34 @@ router.get('/verify-payment/status/:payment_id', async (req, res) => {
       [payment_id]
     );
 
-    if (users.length === 0) {
+    const users = Array.isArray(result) && result.length > 0 ? result[0] : [];
+
+    if (!Array.isArray(users) || users.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Payment not found'
       });
     }
 
-    const subscription = {
-      type: users[0].subscription_type,
-      duration: users[0].subscription_duration,
-      status: users[0].subscription_status,
-      start_date: users[0].subscription_start_date,
-      end_date: users[0].subscription_end_date,
-      amount: users[0].subscription_amount,
-      address: users[0].subscription_address,
-      building_name: users[0].subscription_building_name,
-      flat_number: users[0].subscription_flat_number,
-      payment_id: users[0].subscription_payment_id,
-      created_at: users[0].subscription_created_at,
-      updated_at: users[0].subscription_updated_at,
-      paused_at: users[0].paused_at,
-      resumed_at: users[0].resumed_at,
-      total_paused_days: users[0].total_paused_days
-    };
-
     res.json({
       success: true,
-      subscription: subscription
+      subscription: {
+        type: users[0].subscription_type,
+        duration: users[0].subscription_duration,
+        status: users[0].subscription_status,
+        start_date: users[0].subscription_start_date,
+        end_date: users[0].subscription_end_date,
+        amount: users[0].subscription_amount,
+        address: users[0].subscription_address,
+        building_name: users[0].subscription_building_name,
+        flat_number: users[0].subscription_flat_number,
+        payment_id: users[0].subscription_payment_id,
+        created_at: users[0].subscription_created_at,
+        updated_at: users[0].subscription_updated_at,
+        paused_at: users[0].paused_at,
+        resumed_at: users[0].resumed_at,
+        total_paused_days: users[0].total_paused_days
+      }
     });
 
   } catch (error) {
@@ -335,11 +311,10 @@ router.get('/verify-payment/status/:payment_id', async (req, res) => {
   }
 });
 
-// Helper function to calculate amount
 function calculateAmount(type, duration) {
   const prices = {
     '500ml': { '6days': 300, '15days': 750 },
-    '1000ml': { '6days': 540, '15days': 1350 }
+    '1000ml': { '6days': 570, '15days': 1425 }
   };
   return prices[type]?.[duration] || 0;
 }
