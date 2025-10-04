@@ -105,7 +105,7 @@ router.post('/verify-payment', async (req, res) => {
       landmark,
       latitude,
       longitude,
-      username
+      username // this will now hold userEmail for backend verification
     } = req.body;
 
     // Step 1: Validate required fields
@@ -164,7 +164,6 @@ router.post('/verify-payment', async (req, res) => {
         order_id: payment.order_id
       });
 
-      // Accept both authorized and captured statuses
       const validStatuses = ['authorized', 'captured'];
       if (!validStatuses.includes(payment.status)) {
         console.error('Invalid payment status:', payment.status);
@@ -176,7 +175,6 @@ router.post('/verify-payment', async (req, res) => {
         });
       }
 
-      // Verify order ID matches
       if (payment.order_id !== razorpay_order_id) {
         console.error('Order ID mismatch');
         return res.status(400).json({
@@ -212,28 +210,24 @@ router.post('/verify-payment', async (req, res) => {
       days: daysToAdd
     });
 
-    // Step 5: Check if user exists - CASE-INSENSITIVE SEARCH
-    console.log('Checking if user exists...');
-    console.log('Searching for username/email/name (case-insensitive):', username);
-    
+    // Step 5: Check if user exists using email (case-insensitive)
+    console.log('Checking if user exists using email:', username);
+
     let userExists = false;
     let foundUserId = null;
     let foundUserData = null;
-    
+
     try {
-      // Use LOWER() for case-insensitive comparison
       const userResult = await db.execute(
         `SELECT id, username, email, name 
          FROM users 
-         WHERE LOWER(username) = LOWER(?) 
-            OR LOWER(email) = LOWER(?) 
-            OR LOWER(name) = LOWER(?)`, 
-        [username, username, username]
+         WHERE LOWER(email) = LOWER(?)`, 
+        [username]
       );
-      
+
       const userRows = Array.isArray(userResult) && userResult.length > 0 ? userResult[0] : [];
       userExists = Array.isArray(userRows) && userRows.length > 0;
-      
+
       if (userExists) {
         foundUserId = userRows[0].id;
         foundUserData = {
@@ -243,7 +237,7 @@ router.post('/verify-payment', async (req, res) => {
           name: userRows[0].name
         };
       }
-      
+
       console.log('User check result:', {
         searchedFor: username,
         exists: userExists,
@@ -256,7 +250,7 @@ router.post('/verify-payment', async (req, res) => {
           success: false,
           message: 'User not found. Please register first.',
           searched_for: username,
-          hint: 'Check if the username matches your registration'
+          hint: 'Check if the email matches your registration'
         });
       }
     } catch (userCheckError) {
@@ -275,7 +269,7 @@ router.post('/verify-payment', async (req, res) => {
 
     console.log('Full address:', fullAddress);
 
-    // Step 7: Update user subscription in database - CASE-INSENSITIVE WHERE
+    // Step 7: Update user subscription in database using email only
     console.log('Updating subscription in database...');
     console.log('Will update user with ID:', foundUserId);
     const updateStart = Date.now();
@@ -297,24 +291,20 @@ router.post('/verify-payment', async (req, res) => {
           subscription_created_at = NOW(),
           subscription_updated_at = NOW(),
           updated_at = NOW()
-         WHERE LOWER(username) = LOWER(?) 
-            OR LOWER(email) = LOWER(?) 
-            OR LOWER(name) = LOWER(?)`,
+         WHERE LOWER(email) = LOWER(?)`,
         [
-          subscription_type,              // subscription_type
-          duration,                        // subscription_duration
-          'active',                        // subscription_status
-          formatDateForMySQL(startDate),   // subscription_start_date
-          formatDateForMySQL(endDate),     // subscription_end_date
-          amount,                          // subscription_amount
-          amount,                          // subscription_total_amount
-          fullAddress,                     // subscription_address
-          building_name || '',             // subscription_building_name
-          flat_number || '',               // subscription_flat_number
-          razorpay_payment_id,             // subscription_payment_id
-          username,                        // WHERE LOWER(username) = LOWER(?)
-          username,                        // OR LOWER(email) = LOWER(?)
-          username                         // OR LOWER(name) = LOWER(?)
+          subscription_type,
+          duration,
+          'active',
+          formatDateForMySQL(startDate),
+          formatDateForMySQL(endDate),
+          amount,
+          amount,
+          fullAddress,
+          building_name || '',
+          flat_number || '',
+          razorpay_payment_id,
+          username
         ]
       );
 
@@ -392,7 +382,7 @@ router.post('/verify-payment', async (req, res) => {
 router.get('/verify-payment/status/:payment_id', async (req, res) => {
   try {
     const { payment_id } = req.params;
-    
+
     console.log('Checking payment status for:', payment_id);
 
     const result = await db.execute(
