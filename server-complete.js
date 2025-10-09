@@ -275,7 +275,7 @@ app.use(express.static(path.join(__dirname, '../frontend/public'), { maxAge: '1d
 
 // -------------------- Frontend Routes --------------------
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public/index.html'));
+  res.sendFile(path.join(__dirname, 'https://freshndorganic.com/index.html'));
 });
 app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/public/login.html'));
