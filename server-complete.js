@@ -305,7 +305,7 @@ app.use('*', (req, res, next) => {
   if (req.path.startsWith('/api/')) {
     return next();
   }
-  res.sendFile(path.join(__dirname, '../frontend/public/index.html'));
+  res.sendFile(path.join(__dirname, 'https://freshndorganic.com/index.html'));
 });
 
 // -------------------- Start Server --------------------
