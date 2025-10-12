@@ -6,7 +6,7 @@ const compression = require('compression');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const cron = require('node-cron'); // ✅ Added for daily expiry check
+const cron = require('node-cron'); // ✅ For daily expiry checks
 require('dotenv').config();
 
 // Database connection
@@ -81,37 +81,35 @@ app.use((req, res, next) => {
 });
 
 // -------------------- Core Middleware --------------------
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (!origin) return callback(null, true);
-      const allowedOrigins = [
-        'http://localhost:3000',
-        'http://localhost:3001',
-        'https://freshndorganic.com',
-        'https://www.freshndorganic.com'
-      ];
-      if (allowedOrigins.indexOf(origin) !== -1) {
-        callback(null, true);
-      } else {
-        console.log('⚠️ CORS blocked origin:', origin);
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    exposedHeaders: ['Content-Range', 'X-Content-Range'],
-    maxAge: 600
-  })
-);
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'https://freshndorganic.com',
+      'https://www.freshndorganic.com'
+    ];
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log('⚠️ CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  maxAge: 600
+}));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(compression());
 app.use(morgan('combined', { stream: { write: msg => logger.info(msg.trim()) } }));
 
-// Log all incoming requests
+// -------------------- Logs --------------------
 app.use((req, res, next) => {
   console.log(`📥 ${req.method} ${req.path} - Origin: ${req.headers.origin || 'No origin'}`);
   next();
@@ -145,11 +143,12 @@ app.post('/api/users', async (req, res) => {
       return res.status(400).json({ error: 'Username, password, and email are required' });
     }
 
-    const existing = await db.query(
+    const [existing] = await db.query(
       'SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1',
       [username, email]
     );
-    if (Array.isArray(existing) && existing.length > 0) {
+
+    if (existing && existing.length > 0) {
       console.log('❌ User already exists:', username);
       return res.status(409).json({ error: 'User already exists' });
     }
@@ -173,27 +172,18 @@ app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
     console.log('🔐 Login attempt:', username);
 
-    if (!username || !password) {
-      return res.status(400).json({ success: false, error: 'Username and password required' });
-    }
+    const [result] = await db.query(
+      'SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1',
+      [username, username]
+    );
 
-    const query = 'SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1';
-    const result = await db.query(query, [username, username]);
-    let user;
-    if (Array.isArray(result) && Array.isArray(result[0])) {
-      user = result[0][0];
-    } else if (Array.isArray(result)) {
-      user = result[0];
-    }
-
+    const user = result && result[0];
     if (!user) {
-      console.log('❌ User not found:', username);
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
-      console.log('❌ Invalid password for user:', username);
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
@@ -203,7 +193,6 @@ app.post('/api/login', async (req, res) => {
       { expiresIn: '24h' }
     );
 
-    console.log('✅ Login successful:', username);
     res.json({
       success: true,
       token,
@@ -217,7 +206,6 @@ app.post('/api/login', async (req, res) => {
 });
 
 // -------------------- API Routes --------------------
-console.log('🔗 Registering API routes...');
 app.use('/api/subscriptions', subscriptionRoutesFixed);
 app.use('/api', apiRoutes);
 app.use('/api/optimized', optimizedRoutes);
@@ -226,7 +214,6 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', razorpayConfigRoutes);
 app.use('/api', verifyPaymentRoutes);
-console.log('✅ API routes registered successfully');
 
 // -------------------- Auto Expiry System --------------------
 async function checkAndExpireSubscriptions() {
@@ -243,13 +230,13 @@ async function checkAndExpireSubscriptions() {
   }
 }
 
-// Run daily at midnight
+// Daily at midnight
 cron.schedule('0 0 * * *', () => {
   console.log('⏰ Running daily subscription expiry check...');
   checkAndExpireSubscriptions();
 });
 
-// Manual trigger route (for admin or testing)
+// Manual trigger
 app.get('/api/subscriptions/check-expired', async (req, res) => {
   try {
     const [result] = await db.query(`
@@ -272,18 +259,10 @@ app.get('/api/subscriptions/check-expired', async (req, res) => {
 // -------------------- Health Check --------------------
 app.get('/health', async (req, res) => {
   try {
-    const dbHealth = await db.query('SELECT 1 AS health');
-    let isConnected = false;
-    if (Array.isArray(dbHealth)) {
-      if (Array.isArray(dbHealth[0])) {
-        isConnected = dbHealth[0][0]?.health === 1;
-      } else {
-        isConnected = dbHealth[0]?.health === 1;
-      }
-    }
+    const [dbHealth] = await db.query('SELECT 1 AS health');
     res.json({
       status: 'healthy',
-      database: isConnected ? 'connected' : 'disconnected',
+      database: dbHealth ? 'connected' : 'disconnected',
       timestamp: new Date(),
       environment: process.env.NODE_ENV || 'development'
     });
@@ -297,22 +276,7 @@ app.use(express.static(path.join(__dirname, '../frontend/public'), { maxAge: '1d
 
 // -------------------- Frontend Routes --------------------
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'https://freshndorganic.com/index.html'));
-});
-app.get('/login', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public/login.html'));
-});
-app.get('/register', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public/register.html'));
-});
-app.get('/profile', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public/profile.html'));
-});
-app.get('/admin-login', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public/admin-login.html'));
-});
-app.get('/admin-fixed', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public/admin-fixed.html'));
+  res.sendFile(path.join(__dirname, '../frontend/public/index.html'));
 });
 
 // -------------------- 404 Handler --------------------
@@ -324,17 +288,10 @@ app.use('/api/*', (req, res) => {
 // -------------------- Start Server --------------------
 async function startServer() {
   try {
-    console.log('🚀 Starting server...');
-    console.log('📦 Environment:', process.env.NODE_ENV || 'development');
-    console.log('🔑 JWT Secret:', process.env.JWT_SECRET ? 'Set' : 'Using default');
-    console.log('💳 Razorpay Key ID:', process.env.RAZORPAY_KEY_ID ? 'Set ✅' : 'Missing ❌');
-    console.log('🔐 Razorpay Secret:', process.env.RAZORPAY_KEY_SECRET ? 'Set ✅' : 'Missing ❌');
-
     await databaseValidator.validateSchema();
     const server = app.listen(PORT, () => {
       logger.info(`🚀 Server running on port ${PORT}`);
-      console.log(`✅ Server is ready and listening on port ${PORT}`);
-      console.log(`🌐 API Base URL: http://localhost:${PORT}/api`);
+      console.log(`✅ Server listening on port ${PORT}`);
     });
     server.timeout = 30000;
   } catch (error) {
