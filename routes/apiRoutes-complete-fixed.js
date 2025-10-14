@@ -1,118 +1,106 @@
-// routes/apiRoutes-complete-fixed.js
-const express = require("express");
-const bcrypt = require("bcrypt");
+// routes/apiRoutes.js
+const express = require('express');
 const router = express.Router();
-const db = require("../models"); // ✅ Import database connection and models
+const db = require('../db'); // Your database connection module
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const fetch = require('node-fetch');
 
-// ✅ Debug: Check DB connection
-if (!db || !db.User) {
-  console.error("❌ Database not initialized or User model missing");
-}
-
-// ✅ Register / Signup route
-router.post("/signup", async (req, res) => {
+// ================= LOGIN ROUTE =================
+router.post('/login', async (req, res) => {
   try {
-    console.log("📥 Signup request received:", req.body);
-
-    const { username, email, password } = req.body;
-
-    if (!username || !email || !password) {
-      return res.status(400).json({ message: "All fields are required." });
-    }
-
-    // Check if user already exists
-    const existingUser = await db.User.findOne({ where: { email } });
-    if (existingUser) {
-      return res.status(400).json({ message: "User already exists." });
-    }
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Create user
-    const newUser = await db.User.create({
-      username,
-      email,
-      password: hashedPassword,
-    });
-
-    console.log("✅ New user registered:", newUser.email);
-    return res.status(201).json({ message: "Signup successful!" });
-  } catch (error) {
-    console.error("💥 Signup error:", error);
-    return res.status(500).json({ message: "Server error during signup." });
-  }
-});
-
-// ✅ Login route
-router.post("/login", async (req, res) => {
-  try {
-    console.log("📥 POST /api/login - Full body:", req.body);
     const { username, password } = req.body;
+    if (!username || !password) 
+      return res.status(400).json({ success: false, error: 'Email/Username and password required' });
 
-    if (!username || !password) {
-      return res
-        .status(400)
-        .json({ message: "Username and password are required." });
-    }
+    const [rows] = await db.query('SELECT * FROM users WHERE email = ? OR username = ?', [username, username]);
+    if (!rows || rows.length === 0) return res.status(401).json({ success: false, error: 'Invalid credentials' });
 
-    console.log("🔍 Searching for user:", username);
+    const user = rows[0];
+    if (!user.password) return res.status(500).json({ success: false, error: 'User record incomplete' });
 
-    // Search user by email or username
-    const user = await db.User.findOne({
-      where: { email: username },
-    });
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(401).json({ success: false, error: 'Invalid credentials' });
 
-    if (!user) {
-      console.log("❌ No user found with email:", username);
-      return res.status(404).json({ message: "User not found." });
-    }
+    const token = jwt.sign(
+      { id: user.id, email: user.email, username: user.username },
+      process.env.JWT_SECRET || 'secret',
+      { expiresIn: '7d' }
+    );
 
-    if (!user.password) {
-      console.error("⚠️ User record incomplete or missing password:", user);
-      return res.status(400).json({ message: "User record incomplete." });
-    }
-
-    // Compare passwords
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      console.log("❌ Invalid password for user:", username);
-      return res.status(401).json({ message: "Invalid credentials." });
-    }
-
-    console.log("✅ Login successful for:", username);
-    return res.status(200).json({
-      message: "Login successful",
-      user: { id: user.id, email: user.email, username: user.username },
+    res.json({
+      success: true,
+      message: 'Login successful',
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        username: user.username,
+        phone: user.phone
+      },
+      token
     });
   } catch (error) {
-    console.error("💥 Login error:", error);
-    return res.status(500).json({ message: "Server error during login." });
+    console.error('Login error:', error);
+    res.status(500).json({ success: false, error: 'Server error' });
   }
 });
 
-// ✅ Example route: Get all products
-router.get("/products", async (req, res) => {
+// ================= PROFILE ROUTE =================
+router.get('/profile', async (req, res) => {
   try {
-    const products = await db.Product.findAll();
-    res.json(products);
+    const usernameOrEmail = req.query.username;
+    if (!usernameOrEmail) return res.status(400).json({ error: 'Username is required' });
+
+    const [rows] = await db.query(
+      'SELECT * FROM users WHERE username = ? OR email = ? OR name = ?',
+      [usernameOrEmail, usernameOrEmail, usernameOrEmail]
+    );
+    if (!rows || rows.length === 0) return res.status(404).json({ error: 'User not found' });
+
+    const user = rows[0];
+    res.json({ user });
   } catch (error) {
-    console.error("💥 Error fetching products:", error);
-    res.status(500).json({ message: "Error fetching products" });
+    console.error('Profile fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch user profile' });
   }
 });
 
-// ✅ Example route: Get all subscriptions
-router.get("/subscriptions", async (req, res) => {
+// ================= UPDATE USER ADDRESS =================
+router.put('/users/:username', async (req, res) => {
   try {
-    const subs = await db.Subscription.findAll({
-      include: [{ model: db.User, attributes: ["username", "email"] }],
-    });
-    res.json(subs);
+    const username = req.params.username;
+    const { street, city, state, zip } = req.body;
+    if (!street || !city || !state || !zip) return res.status(400).json({ error: 'All address fields are required' });
+
+    const fullAddress = `${street}, ${city}, ${state}, ${zip}`;
+    const geo = await geocodeAddress(fullAddress);
+
+    const [result] = await db.query(
+      `UPDATE users SET street=?, city=?, state=?, zip=?, latitude=?, longitude=? WHERE username=?`,
+      [street, city, state, zip, geo?.latitude || null, geo?.longitude || null, username]
+    );
+
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'User not found' });
+
+    res.json({ success: true, message: 'Address updated successfully', latitude: geo?.latitude, longitude: geo?.longitude });
   } catch (error) {
-    console.error("💥 Error fetching subscriptions:", error);
-    res.status(500).json({ message: "Error fetching subscriptions" });
+    console.error('Error updating user address:', error);
+    res.status(500).json({ error: 'Failed to update address' });
   }
 });
+
+// ================= HELPER FUNCTION =================
+async function geocodeAddress(address) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
+    const response = await fetch(url, { headers: { 'User-Agent': 'MilkDeliveryApp/1.0' } });
+    const data = await response.json();
+    if (data && data.length > 0) return { latitude: parseFloat(data[0].lat), longitude: parseFloat(data[0].lon) };
+  } catch (err) {
+    console.error('Geocoding error:', err);
+  }
+  return null;
+}
 
 module.exports = router;
