@@ -1,284 +1,177 @@
-// apiRoutes.js - Milk Delivery App
-const express = require('express');
+// =============================
+// 📦 Milk Delivery API Routes
+// =============================
+const express = require("express");
 const router = express.Router();
-const db = require('../db');
-const cacheMiddleware = require('../middleware/cacheMiddleware');
-const fetch = require('node-fetch');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const db = require("../config/db"); // ✅ MySQL connection (using mysql2 or sequelize)
 
-console.log('==== apiRoutes.js router LOADED ====');
+// =====================================================
+// 🧠 LOGIN ROUTE
+// =====================================================
+router.post("/login", async (req, res) => {
+  console.log("📥 POST /api/login - Origin:", req.get("origin"));
+  console.log("📦 Full request body:", req.body);
 
-// ================= LOGIN ROUTE =================
-router.post('/login', async (req, res) => {
+  const { username, password } = req.body;
+
+  if (!username || !password) {
+    return res
+      .status(400)
+      .json({ error: "Username and password are required." });
+  }
+
+  console.log(`🔍 Searching for user: ${username}`);
+
   try {
-    console.log('📥 POST /api/login - Origin:', req.headers.origin);
-    console.log('📦 Full request body:', req.body);
-
-    const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ success: false, error: 'Email/Username and password required' });
-    }
-
-    // Query database
-    const [rows] = await db.query('SELECT * FROM users WHERE email = ? OR username = ?', [username, username]);
-
-    if (!rows || rows.length === 0) {
-      console.error('User not found in DB:', username);
-      return res.status(401).json({ success: false, error: 'Invalid credentials' });
-    }
-
-    const user = rows[0];
-
-    if (!user.password) {
-      console.error('User record incomplete, password missing:', user);
-      return res.status(500).json({ success: false, error: 'User record incomplete' });
-    }
-
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) {
-      return res.status(401).json({ success: false, error: 'Invalid credentials' });
-    }
-
-    const token = jwt.sign(
-      { id: user.id, email: user.email, username: user.username, role: user.role || 'user' },
-      process.env.JWT_SECRET || 'secret',
-      { expiresIn: '7d' }
+    // ✅ Query user from DB (email OR username)
+    const [rows] = await db.query(
+      "SELECT * FROM users WHERE email = ? OR username = ? LIMIT 1",
+      [username, username]
     );
 
-    res.json({
-      success: true,
-      message: 'Login successful',
+    const user = Array.isArray(rows) ? rows[0] : rows;
+
+    if (!user) {
+      console.log("❌ User not found in database");
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    if (!user.password) {
+      console.log("❌ User record incomplete or missing password:", user.password);
+      return res.status(500).json({ error: "User record missing password." });
+    }
+
+    // ✅ Compare hashed password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      console.log("❌ Invalid password");
+      return res.status(401).json({ error: "Invalid credentials." });
+    }
+
+    // ✅ Generate JWT Token
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      process.env.JWT_SECRET || "milk_secret_key",
+      { expiresIn: "7d" }
+    );
+
+    console.log("✅ Login successful for:", user.email);
+
+    return res.status(200).json({
+      message: "Login successful",
+      token,
       user: {
         id: user.id,
         name: user.name,
         email: user.email,
-        username: user.username,
-        phone: user.phone
+        role: user.role,
       },
-      token
     });
-  } catch (error) {
-    console.error('💥 Login error:', error);
-    res.status(500).json({ success: false, error: 'Server error' });
-  }
-});
-
-// ================= PROFILE ROUTE =================
-router.get('/profile', cacheMiddleware.cacheUserData(600), async (req, res) => {
-  try {
-    const usernameOrEmail = req.query.username;
-    if (!usernameOrEmail) return res.status(400).json({ error: 'Username is required' });
-
-    const [rows] = await db.query('SELECT * FROM users WHERE username = ? OR email = ? OR name = ?', 
-      [usernameOrEmail, usernameOrEmail, usernameOrEmail]);
-
-    if (!rows || rows.length === 0) return res.status(404).json({ error: 'User not found' });
-
-    const user = rows[0];
-    const safeUser = {
-      name: user.name || 'NA',
-      username: user.username || 'NA',
-      email: user.email || 'NA',
-      phone: user.phone || 'NA',
-      street: user.street || 'NA',
-      city: user.city || 'NA',
-      state: user.state || 'NA',
-      zip: user.zip || 'NA',
-      latitude: user.latitude || null,
-      longitude: user.longitude || null,
-      created_at: user.created_at || 'NA',
-      updated_at: user.updated_at || 'NA'
-    };
-
-    const userWithSubscription = {
-      ...safeUser,
-      subscription_type: user.subscription_type || null,
-      subscription_duration: user.subscription_duration || null,
-      subscription_status: user.subscription_status || null,
-      subscription_start_date: user.subscription_start_date || null,
-      subscription_end_date: user.subscription_end_date || null,
-      subscription_address: user.subscription_address || null,
-      subscription_building_name: user.subscription_building_name || null,
-      subscription_flat_number: user.subscription_flat_number || null,
-      subscription_amount: user.subscription_amount || null,
-      subscription_payment_id: user.subscription_payment_id || null,
-      subscription_created_at: user.subscription_created_at || null,
-      subscription_updated_at: user.subscription_updated_at || null,
-      remaining_days: user.subscription_end_date
-        ? Math.ceil((new Date(user.subscription_end_date) - new Date()) / (1000 * 60 * 60 * 24))
-        : null
-    };
-
-    res.json({
-      user: userWithSubscription,
-      subscription: userWithSubscription,
-      cache: true,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Profile fetch error:', error.stack || error);
-    res.status(500).json({ error: 'Failed to fetch user profile' });
-  }
-});
-
-// ================= UPDATE USER ADDRESS =================
-router.put('/users/:username', async (req, res) => {
-  try {
-    const username = req.params.username;
-    const { street, city, state, zip } = req.body;
-    if (!street || !city || !state || !zip) 
-      return res.status(400).json({ error: 'All address fields are required' });
-
-    const fullAddress = `${street}, ${city}, ${state}, ${zip}`;
-    const geo = await geocodeAddress(fullAddress);
-    const latitude = geo?.latitude || null;
-    const longitude = geo?.longitude || null;
-
-    const [result] = await db.query(`
-      UPDATE users
-      SET street = ?, city = ?, state = ?, zip = ?, latitude = ?, longitude = ?
-      WHERE username = ?
-    `, [street, city, state, zip, latitude, longitude, username]);
-
-    if (result.affectedRows === 0) return res.status(404).json({ error: 'User not found' });
-
-    res.json({ success: true, message: 'Address updated successfully', latitude, longitude });
-  } catch (error) {
-    console.error('Error updating user address:', error);
-    res.status(500).json({ error: 'Failed to update address' });
-  }
-});
-
-// ================= SUBSCRIPTIONS REMAINING =================
-router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(300), async (req, res) => {
-  try {
-    const username = req.params.username;
-    if (!username) return res.status(400).json({ error: 'Username is required' });
-
-    const query = `
-      SELECT subscription_type, subscription_duration, subscription_created_at as subscription_start_date,
-             subscription_end_date, subscription_status, paused_at,
-             CASE
-               WHEN subscription_status = 'active' AND subscription_end_date IS NOT NULL THEN GREATEST(DATEDIFF(subscription_end_date, CURDATE()), 0)
-               WHEN subscription_status = 'paused' AND subscription_end_date IS NOT NULL AND paused_at IS NOT NULL THEN GREATEST(DATEDIFF(subscription_end_date, paused_at), 0)
-               WHEN subscription_status = 'expired' OR subscription_end_date < CURDATE() THEN 0
-               ELSE NULL
-             END as remaining_days
-      FROM users
-      WHERE username = ? AND subscription_status IN ('active', 'paused', 'expired')
-      LIMIT 1
-    `;
-    const [subscriptions] = await db.query(query, [username]);
-    const sub = subscriptions.length > 0 ? subscriptions[0] : null;
-
-    res.json({
-      hasActiveSubscription: sub ? ['active','paused','expired'].includes(sub.subscription_status) : false,
-      subscription: sub,
-      cache: true,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Subscriptions remaining error:', error);
-    res.status(500).json({ error: 'Failed to fetch subscription details' });
-  }
-});
-
-// ================= SUBSCRIPTIONS SUMMARY =================
-router.get('/subscriptions/summary/:username', cacheMiddleware.cacheUserData(300), async (req, res) => {
-  try {
-    const username = req.params.username;
-    if (!username) return res.status(400).json({ error: 'Username is required' });
-
-    const [userResult] = await db.query('SELECT id, username, subscription_status, subscription_amount FROM users WHERE username = ? OR email = ?', [username, username]);
-    if (!userResult || userResult.length === 0) return res.status(404).json({ error: 'User not found' });
-    const user = userResult[0];
-
-    const [summary] = await db.query(`
-      SELECT COUNT(*) as total_subscriptions,
-             SUM(CASE WHEN subscription_status = 'active' THEN 1 ELSE 0 END) as active_subscriptions,
-             SUM(CASE WHEN subscription_status = 'paused' THEN 1 ELSE 0 END) as paused_subscriptions,
-             SUM(CASE WHEN subscription_status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_subscriptions,
-             SUM(CASE WHEN subscription_status = 'active' THEN subscription_amount ELSE 0 END) as total_active_value,
-             AVG(CASE WHEN subscription_status = 'active' THEN subscription_amount ELSE NULL END) as avg_subscription_value
-      FROM users
-      WHERE id = ?
-    `, [user.id]);
-
-    const [upcomingRenewals] = await db.query(`
-      SELECT id, subscription_type as product_name,
-             subscription_end_date as renewal_date,
-             DATEDIFF(subscription_end_date, CURDATE()) as days_until_renewal,
-             subscription_amount as renewal_amount
-      FROM users
-      WHERE id = ? AND subscription_status = 'active' AND subscription_end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
-      ORDER BY subscription_end_date ASC
-    `, [user.id]);
-
-    res.json({
-      username,
-      summary: summary[0],
-      upcomingRenewals: upcomingRenewals.map(r => ({
-        subscriptionId: r.id,
-        productName: r.product_name,
-        renewalDate: r.renewal_date,
-        daysUntilRenewal: r.days_until_renewal,
-        renewalAmount: r.renewal_amount
-      })),
-      cache: true,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Subscriptions summary error:', error);
-    res.status(500).json({ error: 'Failed to fetch subscription summary' });
-  }
-});
-
-// ================= CREATE SUBSCRIPTION =================
-router.post('/subscriptions', async (req, res) => {
-  try {
-    const { username, subscription_type, duration, amount, address, building_name, flat_number, payment_id } = req.body;
-    if (!username || !subscription_type || !duration || !amount || !payment_id) {
-      return res.status(400).json({ code: 1000, error: 'Missing required subscription fields' });
-    }
-
-    const [userResult] = await db.query('SELECT id FROM users WHERE username = ?', [username]);
-    if (!userResult || userResult.length === 0) return res.status(404).json({ code: 1001, error: 'User account not found' });
-    const userId = userResult[0].id;
-
-    const [existingSub] = await db.query('SELECT id FROM subscriptions WHERE user_id = ? AND subscription_type = ? AND status = ?', [userId, subscription_type, 'active']);
-    if (existingSub && existingSub.length > 0) {
-      return res.status(400).json({ code: 1002, error: 'Active subscription of this type already exists' });
-    }
-
-    const [insertResult] = await db.query(`
-      INSERT INTO subscriptions
-      (user_id, subscription_type, duration, amount, address, building_name, flat_number, payment_id, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())
-    `, [userId, subscription_type, duration, amount, address, building_name, flat_number, payment_id]);
-
-    if (!insertResult || !insertResult.insertId) return res.status(500).json({ code: 1003, error: 'Failed to create subscription' });
-
-    res.json({ id: insertResult.insertId, message: 'Subscription created successfully' });
-  } catch (error) {
-    console.error('Error creating subscription:', error);
-    res.status(500).json({ code: 1004, error: 'Internal server error' });
-  }
-});
-
-// ================= HELPER FUNCTION =================
-async function geocodeAddress(address) {
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
-    const response = await fetch(url, { headers: { 'User-Agent': 'MilkDeliveryApp/1.0' } });
-    const data = await response.json();
-    if (data && data.length > 0) {
-      return { latitude: parseFloat(data[0].lat), longitude: parseFloat(data[0].lon) };
-    }
   } catch (err) {
-    console.error('Geocoding error:', err);
+    console.error("💥 Login error:", err);
+    res.status(500).json({ error: "Server error during login." });
   }
-  return null;
-}
+});
 
+// =====================================================
+// 🧾 REGISTER ROUTE
+// =====================================================
+router.post("/register", async (req, res) => {
+  console.log("📥 POST /api/register - Origin:", req.get("origin"));
+  console.log("📦 Full request body:", req.body);
+
+  const { username, email, password, name, phone } = req.body;
+
+  if (!email || !password || !name) {
+    return res.status(400).json({ error: "All required fields are missing." });
+  }
+
+  try {
+    // ✅ Check if email already exists
+    const [existing] = await db.query("SELECT id FROM users WHERE email = ?", [
+      email,
+    ]);
+    if (existing.length > 0) {
+      return res.status(409).json({ error: "Email already registered." });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const [result] = await db.query(
+      "INSERT INTO users (username, email, password, name, phone, role) VALUES (?, ?, ?, ?, ?, 'user')",
+      [username || email, email, hashedPassword, name, phone]
+    );
+
+    console.log("✅ User registered:", email);
+
+    res.status(201).json({
+      message: "User registered successfully",
+      userId: result.insertId,
+    });
+  } catch (err) {
+    console.error("💥 Register error:", err);
+    res.status(500).json({ error: "Server error during registration." });
+  }
+});
+
+// =====================================================
+// 🧾 GET USER PROFILE (Protected Example)
+// =====================================================
+router.get("/user/:id", async (req, res) => {
+  const userId = req.params.id;
+  try {
+    const [rows] = await db.query(
+      "SELECT id, name, email, phone, role FROM users WHERE id = ?",
+      [userId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    res.json({ user: rows[0] });
+  } catch (err) {
+    console.error("💥 Error fetching user:", err);
+    res.status(500).json({ error: "Server error fetching user data." });
+  }
+});
+
+// =====================================================
+// 🧾 SUBSCRIPTION ROUTES (Optional - Customize later)
+// =====================================================
+router.post("/subscribe", async (req, res) => {
+  const { userId, type, duration, amount } = req.body;
+
+  if (!userId || !type || !duration) {
+    return res.status(400).json({ error: "Missing subscription details." });
+  }
+
+  try {
+    const [result] = await db.query(
+      "UPDATE users SET subscription_type=?, subscription_duration=?, subscription_status='active', subscription_amount=?, subscription_start_date=NOW(), subscription_end_date=DATE_ADD(NOW(), INTERVAL ? DAY) WHERE id=?",
+      [type, duration, amount || 0, duration, userId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    res.json({ message: "Subscription activated successfully!" });
+  } catch (err) {
+    console.error("💥 Subscription error:", err);
+    res.status(500).json({ error: "Error activating subscription." });
+  }
+});
+
+// =====================================================
+// 🧩 HEALTH CHECK (Root API Endpoint)
+// =====================================================
+router.get("/", (req, res) => {
+  res.json({ status: "API working fine ✅", time: new Date().toISOString() });
+});
+
+// =====================================================
+// 🧱 EXPORT ROUTER
+// =====================================================
 module.exports = router;
