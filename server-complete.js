@@ -1,11 +1,11 @@
-// server.js - Full corrected version
+// server.js - Milk Delivery App
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
 const path = require('path');
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const cron = require('node-cron');
 require('dotenv').config();
@@ -14,8 +14,8 @@ require('dotenv').config();
 const db = require('./db');
 
 // Routes
+const apiRoutes = require('./routes/apiRoutes');
 const subscriptionRoutesFixed = require('./routes/subscriptionRoutes-fixed');
-const apiRoutes = require('./routes/apiRoutes-complete-fixed');
 const optimizedRoutes = require('./routes/optimizedRoutes');
 const enhancedSubscriptionRoutes = require('./routes/enhancedSubscriptionRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
@@ -30,7 +30,6 @@ const CacheMiddleware = require('./middleware/cacheMiddleware');
 
 // Utilities
 const logger = require('./utils/logger');
-const queryOptimizer = require('./utils/queryOptimizer');
 const databaseValidator = require('./utils/databaseValidator');
 
 const app = express();
@@ -57,13 +56,7 @@ app.use((req, res, next) => {
           "https://unpkg.com"
         ],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdnjs.cloudflare.com"],
-        imgSrc: [
-          "'self'",
-          "data:",
-          "https://cdnjs.cloudflare.com",
-          "https://unpkg.com",
-          "https://api.razorpay.com"
-        ],
+        imgSrc: ["'self'", "data:", "https://cdnjs.cloudflare.com", "https://unpkg.com", "https://api.razorpay.com"],
         connectSrc: [
           "'self'",
           "https://cdnjs.cloudflare.com",
@@ -132,7 +125,7 @@ app.use('/api', async (req, res, next) => {
   }
 });
 
-// -------------------- Registration --------------------
+// -------------------- Authentication: Registration --------------------
 app.post('/api/users', async (req, res) => {
   try {
     const { username, password, name, phone, email } = req.body;
@@ -166,48 +159,9 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-// -------------------- Corrected Login --------------------
-app.post('/api/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    console.log('🔐 Login attempt:', username);
-
-    if (!username || !password)
-      return res.status(400).json({ success: false, error: 'Username/email and password are required' });
-
-    const [rows] = await db.query(
-      'SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1',
-      [username, username]
-    );
-
-    const user = rows?.[0]; // ✅ Safe access
-    if (!user) return res.status(401).json({ success: false, error: 'Invalid credentials' });
-
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(401).json({ success: false, error: 'Invalid credentials' });
-
-    const token = jwt.sign(
-      { id: user.id, username: user.username, email: user.email, role: user.role || 'user' },
-      SECRET_KEY,
-      { expiresIn: '24h' }
-    );
-
-    res.json({
-      success: true,
-      token,
-      userName: user.name || user.username,
-      userEmail: user.email
-    });
-
-  } catch (err) {
-    console.error('❌ Login error:', err);
-    res.status(500).json({ success: false, error: 'Internal server error' });
-  }
-});
-
 // -------------------- API Routes --------------------
-app.use('/api/subscriptions', subscriptionRoutesFixed);
 app.use('/api', apiRoutes);
+app.use('/api/subscriptions', subscriptionRoutesFixed);
 app.use('/api/optimized', optimizedRoutes);
 app.use('/api/enhanced-subscriptions', enhancedSubscriptionRoutes);
 app.use('/api/analytics', analyticsRoutes);
