@@ -9,56 +9,71 @@ const jwt = require('jsonwebtoken');
 
 console.log('==== apiRoutes.js router LOADED ====');
 
-// ================= LOGIN ROUTE =================
+// ================= LOGIN ROUTE WITH FULL DEBUGGING =================
 router.post('/login', async (req, res) => {
   try {
-    console.log('📥 POST /api/login - Origin:', req.headers.origin);
+    console.log('📥 POST /api/login - Origin:', req.headers.origin || 'No origin');
+    console.log('📦 Raw request body:', req.body);
+
     const { username, password } = req.body;
-    console.log('🔐 Login attempt:', username);
+
+    console.log('🔑 Received username/email:', username);
+    console.log('🔑 Received password exists:', !!password);
 
     if (!username || !password) {
+      console.log('❌ Missing credentials');
       return res.status(400).json({ success: false, error: 'Email/Username and password required' });
     }
 
-    const [rows] = await db.query(
-      'SELECT * FROM users WHERE email = ? OR username = ? LIMIT 1',
-      [username, username]
-    );
+    // Fetch user from DB
+    const users = await db.query('SELECT * FROM users WHERE username = ? OR email = ?', [username, username]);
+    console.log('📊 DB query result:', users);
 
-    if (!rows || rows.length === 0) {
+    if (!users || users.length === 0) {
+      console.log('❌ User not found in database');
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
-    const user = rows[0];
+    const user = users[0];
+    console.log('👤 User found:', {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      passwordHashExists: !!user.password,
+      passwordHashLength: user.password?.length
+    });
 
+    // Compare password
     const match = await bcrypt.compare(password, user.password);
+    console.log('🔐 Password match result:', match);
+
     if (!match) {
+      console.log('❌ Password mismatch');
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
+    // Generate JWT
     const token = jwt.sign(
-      { id: user.id, email: user.email, username: user.username },
+      { id: user.id, username: user.username, email: user.email },
       process.env.JWT_SECRET || 'secret',
-      { expiresIn: '7d' }
+      { expiresIn: '24h' }
     );
+
+    console.log('🎫 Token generated:', token);
 
     res.json({
       success: true,
       message: 'Login successful',
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        username: user.username,
-        phone: user.phone
-      },
+      userName: user.name || user.username,
+      userEmail: user.email,
       token
     });
-  } catch (error) {
-    console.error('💥 Login error:', error);
+  } catch (err) {
+    console.error('💥 Login error:', err);
     res.status(500).json({ success: false, error: 'Server error' });
   }
 });
+
 
 // ================= HELPER FUNCTION =================
 async function geocodeAddress(address) {
