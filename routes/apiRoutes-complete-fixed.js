@@ -16,30 +16,29 @@ router.post('/login', async (req, res) => {
     console.log('📦 Full request body:', req.body);
 
     const { username, password } = req.body;
-    if (!username || !password) 
+    if (!username || !password) {
       return res.status(400).json({ success: false, error: 'Email/Username and password required' });
+    }
 
-    console.log('Searching for user:', username);
-
-    const [rows] = await db.query(
-      'SELECT * FROM users WHERE email = ? OR username = ?',
-      [username, username]
-    );
+    // Query database
+    const [rows] = await db.query('SELECT * FROM users WHERE email = ? OR username = ?', [username, username]);
 
     if (!rows || rows.length === 0) {
-      console.log('User not found in DB');
+      console.error('User not found in DB:', username);
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
     const user = rows[0];
 
-    if (!user || !user.password) {
-      console.error('User record incomplete or missing password:', user);
+    if (!user.password) {
+      console.error('User record incomplete, password missing:', user);
       return res.status(500).json({ success: false, error: 'User record incomplete' });
     }
 
     const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    if (!match) {
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
 
     const token = jwt.sign(
       { id: user.id, email: user.email, username: user.username, role: user.role || 'user' },
@@ -59,9 +58,8 @@ router.post('/login', async (req, res) => {
       },
       token
     });
-
   } catch (error) {
-    console.error('💥 Login error stack:', error.stack || error);
+    console.error('💥 Login error:', error);
     res.status(500).json({ success: false, error: 'Server error' });
   }
 });
@@ -72,15 +70,12 @@ router.get('/profile', cacheMiddleware.cacheUserData(600), async (req, res) => {
     const usernameOrEmail = req.query.username;
     if (!usernameOrEmail) return res.status(400).json({ error: 'Username is required' });
 
-    const [rows] = await db.query(
-      'SELECT * FROM users WHERE username = ? OR email = ? OR name = ?', 
-      [usernameOrEmail, usernameOrEmail, usernameOrEmail]
-    );
+    const [rows] = await db.query('SELECT * FROM users WHERE username = ? OR email = ? OR name = ?', 
+      [usernameOrEmail, usernameOrEmail, usernameOrEmail]);
 
     if (!rows || rows.length === 0) return res.status(404).json({ error: 'User not found' });
 
-    const user = rows[0] || {};
-
+    const user = rows[0];
     const safeUser = {
       name: user.name || 'NA',
       username: user.username || 'NA',
@@ -146,7 +141,7 @@ router.put('/users/:username', async (req, res) => {
       WHERE username = ?
     `, [street, city, state, zip, latitude, longitude, username]);
 
-    if (!result || result.affectedRows === 0) return res.status(404).json({ error: 'User not found' });
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'User not found' });
 
     res.json({ success: true, message: 'Address updated successfully', latitude, longitude });
   } catch (error) {
@@ -175,7 +170,7 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
       LIMIT 1
     `;
     const [subscriptions] = await db.query(query, [username]);
-    const sub = subscriptions && subscriptions.length > 0 ? subscriptions[0] : null;
+    const sub = subscriptions.length > 0 ? subscriptions[0] : null;
 
     res.json({
       hasActiveSubscription: sub ? ['active','paused','expired'].includes(sub.subscription_status) : false,
@@ -195,10 +190,7 @@ router.get('/subscriptions/summary/:username', cacheMiddleware.cacheUserData(300
     const username = req.params.username;
     if (!username) return res.status(400).json({ error: 'Username is required' });
 
-    const [userResult] = await db.query(
-      'SELECT id, username, subscription_status, subscription_amount FROM users WHERE username = ? OR email = ?',
-      [username, username]
-    );
+    const [userResult] = await db.query('SELECT id, username, subscription_status, subscription_amount FROM users WHERE username = ? OR email = ?', [username, username]);
     if (!userResult || userResult.length === 0) return res.status(404).json({ error: 'User not found' });
     const user = userResult[0];
 
@@ -225,7 +217,7 @@ router.get('/subscriptions/summary/:username', cacheMiddleware.cacheUserData(300
 
     res.json({
       username,
-      summary: summary[0] || {},
+      summary: summary[0],
       upcomingRenewals: upcomingRenewals.map(r => ({
         subscriptionId: r.id,
         productName: r.product_name,
