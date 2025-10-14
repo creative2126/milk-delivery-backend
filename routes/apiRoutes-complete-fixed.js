@@ -90,7 +90,7 @@ router.post('/login', async (req, res) => {
     console.log('Login attempt with:', searchValue);
 
     // Query database - search by email, username, or phone
-    const [rows] = await db.query(
+    const result = await db.query(
       `SELECT id, username, email, password, name, phone, role 
        FROM users 
        WHERE email = ? OR username = ? OR phone = ?
@@ -98,17 +98,30 @@ router.post('/login', async (req, res) => {
       [searchValue, searchValue, searchValue]
     );
 
-    console.log('Query result rows:', rows);
+    console.log('Query result:', result);
 
-    if (!rows || rows.length === 0) {
-      console.log('❌ Login failed: User not found -', searchValue);
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Invalid credentials' 
-      });
+    // Handle both array and direct object returns
+    let user;
+    if (Array.isArray(result)) {
+      const [rows] = result;
+      if (!rows || (Array.isArray(rows) && rows.length === 0)) {
+        console.log('❌ Login failed: User not found -', searchValue);
+        return res.status(401).json({ 
+          success: false, 
+          error: 'Invalid credentials' 
+        });
+      }
+      user = Array.isArray(rows) ? rows[0] : rows;
+    } else {
+      user = result;
+      if (!user || !user.id) {
+        console.log('❌ Login failed: User not found -', searchValue);
+        return res.status(401).json({ 
+          success: false, 
+          error: 'Invalid credentials' 
+        });
+      }
     }
-
-    const user = rows[0];
     console.log('User found:', { id: user.id, email: user.email, hasPassword: !!user.password });
 
     // Check if password exists
