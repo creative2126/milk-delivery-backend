@@ -6,10 +6,10 @@ const compression = require('compression');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const cron = require('node-cron'); // ✅ For daily expiry checks
+const cron = require('node-cron');
 require('dotenv').config();
 
-// Database connection
+// Database
 const db = require('./db');
 
 // Routes
@@ -23,13 +23,11 @@ const razorpayConfigRoutes = require('./routes/razorpay-config');
 const verifyPaymentRoutes = require('./routes/verify-payment-enhanced');
 
 const { authenticateToken } = require('./middleware/auth');
-
-// Middleware
 const errorHandler = require('./middleware/errorHandler');
 const validation = require('./middleware/validation');
 const CacheMiddleware = require('./middleware/cacheMiddleware');
 
-// Utilities
+// Utils
 const logger = require('./utils/logger');
 const queryOptimizer = require('./utils/queryOptimizer');
 const databaseValidator = require('./utils/databaseValidator');
@@ -90,7 +88,7 @@ app.use(cors({
       'https://freshndorganic.com',
       'https://www.freshndorganic.com'
     ];
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       console.log('⚠️ CORS blocked origin:', origin);
@@ -109,20 +107,20 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(compression());
 app.use(morgan('combined', { stream: { write: msg => logger.info(msg.trim()) } }));
 
-// -------------------- Logs --------------------
+// Log incoming requests
 app.use((req, res, next) => {
   console.log(`📥 ${req.method} ${req.path} - Origin: ${req.headers.origin || 'No origin'}`);
   next();
 });
 
-// -------------------- Caching & Rate Limiting --------------------
+// -------------------- Cache & Rate Limit --------------------
 app.use('/api', CacheMiddleware.cacheGet(300));
 app.use('/api/user', CacheMiddleware.cacheUserData(600));
 app.use('/api', (req, res, next) => CacheMiddleware.clearCache('api')(req, res, next));
 app.use('/api/user', (req, res, next) => CacheMiddleware.clearCache('user')(req, res, next));
 app.use('/api', CacheMiddleware.rateLimit(200, 15 * 60 * 1000));
 
-// -------------------- Database Health Check --------------------
+// -------------------- Database Health --------------------
 app.use('/api', async (req, res, next) => {
   try {
     await db.query('SELECT 1');
@@ -133,7 +131,7 @@ app.use('/api', async (req, res, next) => {
   }
 });
 
-// -------------------- Authentication --------------------
+// -------------------- Register --------------------
 app.post('/api/users', async (req, res) => {
   try {
     const { username, password, name, phone, email } = req.body;
@@ -167,23 +165,32 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
+// -------------------- LOGIN (FINAL FIXED VERSION) --------------------
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     console.log('🔐 Login attempt:', username);
 
-    const [result] = await db.query(
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: 'Username and password required' });
+    }
+
+    const [rows] = await db.query(
       'SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1',
       [username, username]
     );
 
-    const user = result && result[0];
-    if (!user) {
+    if (!rows || rows.length === 0) {
+      console.log('❌ No user found for:', username);
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) {
+    const user = rows[0];
+    console.log('👤 Found user:', user.username);
+
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) {
+      console.log('❌ Password mismatch for:', username);
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
@@ -193,11 +200,18 @@ app.post('/api/login', async (req, res) => {
       { expiresIn: '24h' }
     );
 
+    console.log('✅ Login successful for:', username);
     res.json({
       success: true,
+      message: 'Login successful',
       token,
-      userName: user.name || user.username,
-      userEmail: user.email
+      user: {
+        id: user.id,
+        name: user.name || user.username,
+        email: user.email,
+        username: user.username,
+        role: user.role || 'user'
+      }
     });
   } catch (error) {
     console.error('❌ Login error:', error);
@@ -224,15 +238,15 @@ async function checkAndExpireSubscriptions() {
       WHERE subscription_status = 'active'
       AND subscription_end_date < NOW()
     `);
-    console.log(`🕒 Subscription expiry check done — ${result?.affectedRows || 0} expired.`);
+    console.log(`🕒 Expiry check — ${result?.affectedRows || 0} users expired.`);
   } catch (err) {
-    console.error('❌ Error while expiring subscriptions:', err);
+    console.error('❌ Expiry update failed:', err);
   }
 }
 
 // Daily at midnight
 cron.schedule('0 0 * * *', () => {
-  console.log('⏰ Running daily subscription expiry check...');
+  console.log('⏰ Running daily expiry check...');
   checkAndExpireSubscriptions();
 });
 
