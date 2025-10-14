@@ -5,7 +5,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
 const path = require('path');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cron = require('node-cron');
 require('dotenv').config();
@@ -14,14 +14,16 @@ require('dotenv').config();
 const db = require('./db');
 
 // Routes
-const apiRoutes = require('./routes/apiRoutes');
 const subscriptionRoutesFixed = require('./routes/subscriptionRoutes-fixed');
+const apiRoutes = require('./routes/apiRoutes-complete-fixed');
 const optimizedRoutes = require('./routes/optimizedRoutes');
 const enhancedSubscriptionRoutes = require('./routes/enhancedSubscriptionRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const razorpayConfigRoutes = require('./routes/razorpay-config');
 const verifyPaymentRoutes = require('./routes/verify-payment-enhanced');
+
+const { authenticateToken } = require('./middleware/auth');
 
 // Middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -30,6 +32,7 @@ const CacheMiddleware = require('./middleware/cacheMiddleware');
 
 // Utilities
 const logger = require('./utils/logger');
+const queryOptimizer = require('./utils/queryOptimizer');
 const databaseValidator = require('./utils/databaseValidator');
 
 const app = express();
@@ -56,7 +59,13 @@ app.use((req, res, next) => {
           "https://unpkg.com"
         ],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdnjs.cloudflare.com"],
-        imgSrc: ["'self'", "data:", "https://cdnjs.cloudflare.com", "https://unpkg.com", "https://api.razorpay.com"],
+        imgSrc: [
+          "'self'",
+          "data:",
+          "https://cdnjs.cloudflare.com",
+          "https://unpkg.com",
+          "https://api.razorpay.com"
+        ],
         connectSrc: [
           "'self'",
           "https://cdnjs.cloudflare.com",
@@ -125,7 +134,7 @@ app.use('/api', async (req, res, next) => {
   }
 });
 
-// -------------------- Authentication: Registration --------------------
+// -------------------- Authentication --------------------
 app.post('/api/users', async (req, res) => {
   try {
     const { username, password, name, phone, email } = req.body;
@@ -159,9 +168,49 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
+// -------------------- LOGIN ROUTE --------------------
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    console.log('🔐 Login attempt:', username);
+
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: 'Email/Username and password required' });
+    }
+
+    const [result] = await db.query('SELECT * FROM users WHERE email = ? OR username = ?', [username, username]);
+    const user = result && result[0];
+
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
+
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign(
+      { id: user.id, username: user.username, email: user.email, role: user.role || 'user' },
+      SECRET_KEY,
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      success: true,
+      token,
+      userName: user.name || user.username,
+      userEmail: user.email
+    });
+  } catch (error) {
+    console.error('❌ Login error:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
+
 // -------------------- API Routes --------------------
-app.use('/api', apiRoutes);
 app.use('/api/subscriptions', subscriptionRoutesFixed);
+app.use('/api', apiRoutes);
 app.use('/api/optimized', optimizedRoutes);
 app.use('/api/enhanced-subscriptions', enhancedSubscriptionRoutes);
 app.use('/api/analytics', analyticsRoutes);
