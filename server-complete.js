@@ -23,16 +23,9 @@ const adminRoutes = require('./routes/adminRoutes');
 const razorpayConfigRoutes = require('./routes/razorpay-config');
 const verifyPaymentRoutes = require('./routes/verify-payment-enhanced');
 
-const { authenticateToken } = require('./middleware/auth');
-
 // Middleware
-const errorHandler = require('./middleware/errorHandler');
-const validation = require('./middleware/validation');
 const CacheMiddleware = require('./middleware/cacheMiddleware');
-
-// Utilities
 const logger = require('./utils/logger');
-const queryOptimizer = require('./utils/queryOptimizer');
 const databaseValidator = require('./utils/databaseValidator');
 
 const app = express();
@@ -45,27 +38,10 @@ app.use((req, res, next) => {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: [
-          "'self'",
-          "https://cdnjs.cloudflare.com",
-          "https://unpkg.com",
-          "https://checkout.razorpay.com"
-        ],
-        styleSrc: [
-          "'self'",
-          "'unsafe-inline'",
-          "https://cdnjs.cloudflare.com",
-          "https://fonts.googleapis.com",
-          "https://unpkg.com"
-        ],
+        scriptSrc: ["'self'", "https://cdnjs.cloudflare.com", "https://unpkg.com", "https://checkout.razorpay.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com", "https://fonts.googleapis.com", "https://unpkg.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdnjs.cloudflare.com"],
-        imgSrc: [
-          "'self'",
-          "data:",
-          "https://cdnjs.cloudflare.com",
-          "https://unpkg.com",
-          "https://api.razorpay.com"
-        ],
+        imgSrc: ["'self'", "data:", "https://cdnjs.cloudflare.com", "https://unpkg.com", "https://api.razorpay.com"],
         connectSrc: [
           "'self'",
           "https://cdnjs.cloudflare.com",
@@ -110,7 +86,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(compression());
 app.use(morgan('combined', { stream: { write: msg => logger.info(msg.trim()) } }));
 
-// -------------------- Logs --------------------
+// -------------------- Logging --------------------
 app.use((req, res, next) => {
   console.log(`📥 ${req.method} ${req.path} - Origin: ${req.headers.origin || 'No origin'}`);
   next();
@@ -134,9 +110,7 @@ app.use('/api', async (req, res, next) => {
   }
 });
 
-// -------------------- Authentication --------------------
-
-// Registration
+// -------------------- USER REGISTRATION --------------------
 app.post('/api/users', async (req, res) => {
   try {
     const { username, password, name, phone, email } = req.body;
@@ -146,21 +120,14 @@ app.post('/api/users', async (req, res) => {
       return res.status(400).json({ error: 'Username, password, and email are required' });
     }
 
-    const [existing] = await db.query(
-      'SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1',
-      [username, email]
-    );
-
+    const [existing] = await db.query('SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1', [username, email]);
     if (existing && existing.length > 0) {
       console.log('❌ User already exists:', username);
       return res.status(409).json({ error: 'User already exists' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    await db.query(
-      'INSERT INTO users (username, password, name, phone, email) VALUES (?, ?, ?, ?, ?)',
-      [username, hashedPassword, name, phone, email]
-    );
+    await db.query('INSERT INTO users (username, password, name, phone, email) VALUES (?, ?, ?, ?, ?)', [username, hashedPassword, name, phone, email]);
 
     console.log('✅ User registered successfully:', username);
     res.status(201).json({ message: 'User registered successfully' });
@@ -170,34 +137,36 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-// Login
+// -------------------- LOGIN ROUTE (FIXED) --------------------
 app.post('/api/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
-    console.log('🔐 Login attempt:', username);
+    console.log('Login attempt received');
     console.log('📦 Raw request body:', req.body);
+
+    const { username, password } = req.body;
+    console.log('🔑 Received username/email:', username);
+    console.log('🔑 Received password exists:', !!password);
 
     if (!username || !password) {
       return res.status(400).json({ success: false, error: 'Email/Username and password required' });
     }
 
-    const [rows] = await db.query(
-      'SELECT * FROM users WHERE email = ? OR username = ?',
-      [username, username]
-    );
+    // Correct destructuring for MySQL2
+    const [users] = await db.query('SELECT * FROM users WHERE username = ? OR email = ?', [username, username]);
+    console.log('DB rows:', users);
 
-    console.log('DB rows:', rows);
-
-    const user = rows[0];
-    if (!user) {
+    if (!users || users.length === 0) {
       console.log('❌ User not found in database');
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
-    const match = await bcrypt.compare(password, user.password);
-    console.log('Password match:', match);
+    const user = users[0];
 
-    if (!match) return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
+      console.log('❌ Password mismatch');
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
 
     const token = jwt.sign(
       { id: user.id, username: user.username, email: user.email, role: user.role || 'user' },
@@ -205,19 +174,22 @@ app.post('/api/login', async (req, res) => {
       { expiresIn: '24h' }
     );
 
+    console.log('✅ Login successful for:', user.email);
+
     res.json({
       success: true,
-      token,
+      message: 'Login successful',
       userName: user.name || user.username,
-      userEmail: user.email
+      userEmail: user.email,
+      token
     });
-  } catch (error) {
-    console.error('❌ Login error:', error);
-    res.status(500).json({ success: false, error: 'Internal server error' });
+  } catch (err) {
+    console.error('❌ Login error:', err);
+    res.status(500).json({ success: false, error: 'Server error' });
   }
 });
 
-// -------------------- API Routes --------------------
+// -------------------- API ROUTES --------------------
 app.use('/api/subscriptions', subscriptionRoutesFixed);
 app.use('/api', apiRoutes);
 app.use('/api/optimized', optimizedRoutes);
@@ -227,7 +199,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api', razorpayConfigRoutes);
 app.use('/api', verifyPaymentRoutes);
 
-// -------------------- Auto Expiry System --------------------
+// -------------------- AUTO EXPIRY SYSTEM --------------------
 async function checkAndExpireSubscriptions() {
   try {
     const [result] = await db.query(`
@@ -268,7 +240,7 @@ app.get('/api/subscriptions/check-expired', async (req, res) => {
   }
 });
 
-// -------------------- Health Check --------------------
+// -------------------- HEALTH CHECK --------------------
 app.get('/health', async (req, res) => {
   try {
     const [dbHealth] = await db.query('SELECT 1 AS health');
@@ -283,21 +255,21 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// -------------------- Static Files --------------------
+// -------------------- STATIC FILES --------------------
 app.use(express.static(path.join(__dirname, '../frontend/public'), { maxAge: '1d' }));
 
-// -------------------- Frontend Routes --------------------
+// -------------------- FRONTEND ROUTES --------------------
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/public/index.html'));
 });
 
-// -------------------- 404 Handler --------------------
+// -------------------- 404 HANDLER --------------------
 app.use('/api/*', (req, res) => {
   console.log('❌ 404 API route not found:', req.path);
   res.status(404).json({ error: 'API route not found', path: req.path });
 });
 
-// -------------------- Start Server --------------------
+// -------------------- START SERVER --------------------
 async function startServer() {
   try {
     await databaseValidator.validateSchema();
