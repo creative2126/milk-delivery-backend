@@ -6,73 +6,42 @@ const cacheMiddleware = require('../middleware/cacheMiddleware');
 const fetch = require('node-fetch');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+
 console.log('==== apiRoutes.js router LOADED ====');
 
-// ================= LOGIN ROUTE WITH DEBUG LOGGING =================
+// ================= LOGIN ROUTE =================
 router.post('/login', async (req, res) => {
   try {
     console.log('📥 POST /api/login - Origin:', req.headers.origin);
-    console.log('📦 Full request body:', req.body);
-    console.log('📦 Request body JSON:', JSON.stringify(req.body));
-    console.log('📦 Body keys:', Object.keys(req.body));
-    
     const { username, password } = req.body;
-    
     console.log('🔐 Login attempt:', username);
-    console.log('🔐 Username type:', typeof username);
-    console.log('🔑 Password received:', password ? 'YES' : 'NO');
-    console.log('🔑 Password type:', typeof password);
-    console.log('🔑 Password length:', password?.length);
-    
+
     if (!username || !password) {
-      console.log('❌ Missing credentials - username:', !!username, 'password:', !!password);
       return res.status(400).json({ success: false, error: 'Email/Username and password required' });
     }
 
-    // Query user by email or username
-    console.log('🔍 Searching for user:', username);
-    const users = await db.query('SELECT * FROM users WHERE email = ? OR username = ?', [username, username]);
-    
-    console.log('📊 Query result:', users ? `Found ${users.length} user(s)` : 'No users found');
-    
-    if (!users || users.length === 0) {
-      console.log('❌ User not found in database');
+    const [rows] = await db.query(
+      'SELECT * FROM users WHERE email = ? OR username = ? LIMIT 1',
+      [username, username]
+    );
+
+    if (!rows || rows.length === 0) {
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
-    const user = users[0];
-    console.log('👤 User found:', {
-      id: user.id,
-      email: user.email,
-      username: user.username,
-      hasPassword: !!user.password,
-      passwordLength: user.password?.length
-    });
+    const user = rows[0];
 
-    // Compare password (hashed)
-    console.log('🔐 Comparing passwords...');
-    console.log('   - Input password length:', password.length);
-    console.log('   - Stored hash length:', user.password?.length);
-    
     const match = await bcrypt.compare(password, user.password);
-    console.log('✅ Password match result:', match);
-    
     if (!match) {
-      console.log('❌ Password mismatch');
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
-    // Generate JWT token
-    console.log('🎫 Generating JWT token...');
     const token = jwt.sign(
-      { id: user.id, email: user.email }, 
-      process.env.JWT_SECRET || 'secret', 
+      { id: user.id, email: user.email, username: user.username },
+      process.env.JWT_SECRET || 'secret',
       { expiresIn: '7d' }
     );
-    console.log('✅ Token generated successfully');
 
-    console.log('✨ Login successful for:', user.email);
-    
     res.json({
       success: true,
       message: 'Login successful',
@@ -87,18 +56,15 @@ router.post('/login', async (req, res) => {
     });
   } catch (error) {
     console.error('💥 Login error:', error);
-    console.error('Stack trace:', error.stack);
     res.status(500).json({ success: false, error: 'Server error' });
   }
 });
 
-// ================= HELPER FUNCTIONS =================
+// ================= HELPER FUNCTION =================
 async function geocodeAddress(address) {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
   try {
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'MilkDeliveryApp/1.0 (your-email@example.com)' }
-    });
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
+    const response = await fetch(url, { headers: { 'User-Agent': 'MilkDeliveryApp/1.0' } });
     const data = await response.json();
     if (data && data.length > 0) {
       return { latitude: parseFloat(data[0].lat), longitude: parseFloat(data[0].lon) };
@@ -115,8 +81,10 @@ router.get('/profile', cacheMiddleware.cacheUserData(600), async (req, res) => {
     const usernameOrEmail = req.query.username;
     if (!usernameOrEmail) return res.status(400).json({ error: 'Username is required' });
 
-    const query = 'SELECT * FROM users WHERE username = ? OR email = ? OR name = ?';
-    const userData = await db.query(query, [usernameOrEmail, usernameOrEmail, usernameOrEmail]);
+    const [userData] = await db.query(
+      'SELECT * FROM users WHERE username = ? OR email = ? OR name = ?',
+      [usernameOrEmail, usernameOrEmail, usernameOrEmail]
+    );
     if (!userData || userData.length === 0) return res.status(404).json({ error: 'User not found' });
 
     const user = userData[0];
@@ -178,14 +146,12 @@ router.put('/users/:username', async (req, res) => {
     const latitude = geo?.latitude || null;
     const longitude = geo?.longitude || null;
 
-    const updateQuery = `
-      UPDATE users
-      SET street = ?, city = ?, state = ?, zip = ?, latitude = ?, longitude = ?
-      WHERE username = ?
-    `;
-    const result = await db.query(updateQuery, [street, city, state, zip, latitude, longitude, username]);
+    const [result] = await db.query(
+      `UPDATE users SET street = ?, city = ?, state = ?, zip = ?, latitude = ?, longitude = ? WHERE username = ?`,
+      [street, city, state, zip, latitude, longitude, username]
+    );
 
-    if (result.affectedRows === 0) return res.status(404).json({ error: 'User not found' });
+    if (!result || result.affectedRows === 0) return res.status(404).json({ error: 'User not found' });
 
     res.json({ success: true, message: 'Address updated successfully', latitude, longitude });
   } catch (error) {
@@ -200,25 +166,21 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
     const username = req.params.username;
     if (!username) return res.status(400).json({ error: 'Username is required' });
 
-    const query = `
-      SELECT
-        subscription_type,
-        subscription_duration,
-        subscription_created_at as subscription_start_date,
-        subscription_end_date,
-        subscription_status,
-        paused_at,
-        CASE
-          WHEN subscription_status = 'active' AND subscription_end_date IS NOT NULL THEN GREATEST(DATEDIFF(subscription_end_date, CURDATE()), 0)
-          WHEN subscription_status = 'paused' AND subscription_end_date IS NOT NULL AND paused_at IS NOT NULL THEN GREATEST(DATEDIFF(subscription_end_date, paused_at), 0)
-          WHEN subscription_status = 'expired' OR subscription_end_date < CURDATE() THEN 0
-          ELSE NULL
-        END as remaining_days
-      FROM users
-      WHERE username = ? AND subscription_status IN ('active', 'paused', 'expired')
-      LIMIT 1
-    `;
-    const subscriptions = await db.query(query, [username]);
+    const [subscriptions] = await db.query(
+      `SELECT subscription_type, subscription_duration, subscription_created_at as subscription_start_date,
+              subscription_end_date, subscription_status, paused_at,
+              CASE
+                WHEN subscription_status = 'active' AND subscription_end_date IS NOT NULL THEN GREATEST(DATEDIFF(subscription_end_date, CURDATE()), 0)
+                WHEN subscription_status = 'paused' AND subscription_end_date IS NOT NULL AND paused_at IS NOT NULL THEN GREATEST(DATEDIFF(subscription_end_date, paused_at), 0)
+                WHEN subscription_status = 'expired' OR subscription_end_date < CURDATE() THEN 0
+                ELSE NULL
+              END as remaining_days
+       FROM users
+       WHERE username = ? AND subscription_status IN ('active','paused','expired')
+       LIMIT 1`,
+      [username]
+    );
+
     const sub = subscriptions.length > 0 ? subscriptions[0] : null;
 
     res.json({
@@ -239,35 +201,32 @@ router.get('/subscriptions/summary/:username', cacheMiddleware.cacheUserData(300
     const username = req.params.username;
     if (!username) return res.status(400).json({ error: 'Username is required' });
 
-    const userResult = await db.query('SELECT id, username, subscription_status, subscription_amount FROM users WHERE username = ? OR email = ?', [username, username]);
+    const [userResult] = await db.query('SELECT id, username, subscription_status, subscription_amount FROM users WHERE username = ? OR email = ?', [username, username]);
     if (!userResult || userResult.length === 0) return res.status(404).json({ error: 'User not found' });
     const user = userResult[0];
 
-    const summaryQuery = `
-      SELECT
-        COUNT(*) as total_subscriptions,
-        SUM(CASE WHEN subscription_status = 'active' THEN 1 ELSE 0 END) as active_subscriptions,
-        SUM(CASE WHEN subscription_status = 'paused' THEN 1 ELSE 0 END) as paused_subscriptions,
-        SUM(CASE WHEN subscription_status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_subscriptions,
-        SUM(CASE WHEN subscription_status = 'active' THEN subscription_amount ELSE 0 END) as total_active_value,
-        AVG(CASE WHEN subscription_status = 'active' THEN subscription_amount ELSE NULL END) as avg_subscription_value
-      FROM users
-      WHERE id = ?
-    `;
-    const [summary] = await db.query(summaryQuery, [user.id]);
+    const [summary] = await db.query(
+      `SELECT
+         COUNT(*) as total_subscriptions,
+         SUM(CASE WHEN subscription_status = 'active' THEN 1 ELSE 0 END) as active_subscriptions,
+         SUM(CASE WHEN subscription_status = 'paused' THEN 1 ELSE 0 END) as paused_subscriptions,
+         SUM(CASE WHEN subscription_status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_subscriptions,
+         SUM(CASE WHEN subscription_status = 'active' THEN subscription_amount ELSE 0 END) as total_active_value,
+         AVG(CASE WHEN subscription_status = 'active' THEN subscription_amount ELSE NULL END) as avg_subscription_value
+       FROM users
+       WHERE id = ?`,
+      [user.id]
+    );
 
-    const renewalsQuery = `
-      SELECT
-        id,
-        subscription_type as product_name,
-        subscription_end_date as renewal_date,
-        DATEDIFF(subscription_end_date, CURDATE()) as days_until_renewal,
-        subscription_amount as renewal_amount
-      FROM users
-      WHERE id = ? AND subscription_status = 'active' AND subscription_end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
-      ORDER BY subscription_end_date ASC
-    `;
-    const [upcomingRenewals] = await db.query(renewalsQuery, [user.id]);
+    const [upcomingRenewals] = await db.query(
+      `SELECT id, subscription_type as product_name, subscription_end_date as renewal_date,
+              DATEDIFF(subscription_end_date, CURDATE()) as days_until_renewal,
+              subscription_amount as renewal_amount
+       FROM users
+       WHERE id = ? AND subscription_status = 'active' AND subscription_end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+       ORDER BY subscription_end_date ASC`,
+      [user.id]
+    );
 
     res.json({
       username,
@@ -296,11 +255,14 @@ router.post('/subscriptions', async (req, res) => {
       return res.status(400).json({ code: 1000, error: 'Missing required subscription fields' });
     }
 
-    const userResult = await db.query('SELECT id FROM users WHERE username = ?', [username]);
+    const [userResult] = await db.query('SELECT id FROM users WHERE username = ?', [username]);
     if (!userResult || userResult.length === 0) return res.status(404).json({ code: 1001, error: 'User account not found' });
     const userId = userResult[0].id;
 
-    const existingSub = await db.query('SELECT id FROM subscriptions WHERE user_id = ? AND subscription_type = ? AND status = ?', [userId, subscription_type, 'active']);
+    const [existingSub] = await db.query(
+      'SELECT id FROM subscriptions WHERE user_id = ? AND subscription_type = ? AND status = ?',
+      [userId, subscription_type, 'active']
+    );
     if (existingSub && existingSub.length > 0) {
       return res.status(400).json({
         code: 1002,
@@ -309,10 +271,10 @@ router.post('/subscriptions', async (req, res) => {
       });
     }
 
-    const insertResult = await db.query(
+    const [insertResult] = await db.query(
       `INSERT INTO subscriptions
-      (user_id, subscription_type, duration, amount, address, building_name, flat_number, payment_id, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`,
+       (user_id, subscription_type, duration, amount, address, building_name, flat_number, payment_id, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`,
       [userId, subscription_type, duration, amount, address, building_name, flat_number, payment_id]
     );
 
