@@ -171,22 +171,34 @@ app.post('/api/users', async (req, res) => {
 // -------------------- LOGIN ROUTE --------------------
 app.post('/api/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
-    console.log('🔐 Login attempt:', username);
+    console.log('🔐 Login attempt received');
+    console.log('📦 Raw request body:', req.body);
+
+    const { username, password } = req.body || {};
+    console.log('🔑 Received username/email:', username);
+    console.log('🔑 Received password exists:', !!password);
 
     if (!username || !password) {
+      console.log('❌ Missing credentials');
       return res.status(400).json({ success: false, error: 'Email/Username and password required' });
     }
 
-    const [result] = await db.query('SELECT * FROM users WHERE email = ? OR username = ?', [username, username]);
-    const user = result && result[0];
+    const [rows] = await db.query(
+      'SELECT * FROM users WHERE email = ? OR username = ? LIMIT 1',
+      [username, username]
+    );
+    const user = rows && rows[0];
 
     if (!user) {
+      console.log('❌ User not found in database');
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
     const match = await bcrypt.compare(password, user.password);
+    console.log('🔐 Password match result:', match);
+
     if (!match) {
+      console.log('❌ Password mismatch');
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
@@ -198,10 +210,14 @@ app.post('/api/login', async (req, res) => {
 
     res.json({
       success: true,
+      message: 'Login successful',
       token,
       userName: user.name || user.username,
       userEmail: user.email
     });
+
+    console.log('✅ Login successful for user:', user.email);
+
   } catch (error) {
     console.error('❌ Login error:', error);
     res.status(500).json({ success: false, error: 'Internal server error' });
