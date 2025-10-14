@@ -5,7 +5,7 @@ const express = require("express");
 const router = express.Router();
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const db = require("../config/db"); // ✅ MySQL connection (using mysql2 or sequelize)
+
 
 // =====================================================
 // 🧠 LOGIN ROUTE
