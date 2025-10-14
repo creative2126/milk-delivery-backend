@@ -12,15 +12,20 @@ console.log('==== apiRoutes.js router LOADED ====');
 router.post('/login', async (req, res) => {
   try {
     console.log('📥 POST /api/login - Origin:', req.headers.origin);
-    console.log('📦 Request body:', JSON.stringify(req.body));
+    console.log('📦 Full request body:', req.body);
+    console.log('📦 Request body JSON:', JSON.stringify(req.body));
+    console.log('📦 Body keys:', Object.keys(req.body));
     
     const { username, password } = req.body;
     
     console.log('🔐 Login attempt:', username);
-    console.log('🔑 Password received:', password ? 'YES' : 'NO', 'Length:', password?.length);
+    console.log('🔐 Username type:', typeof username);
+    console.log('🔑 Password received:', password ? 'YES' : 'NO');
+    console.log('🔑 Password type:', typeof password);
+    console.log('🔑 Password length:', password?.length);
     
     if (!username || !password) {
-      console.log('❌ Missing credentials');
+      console.log('❌ Missing credentials - username:', !!username, 'password:', !!password);
       return res.status(400).json({ success: false, error: 'Email/Username and password required' });
     }
 
