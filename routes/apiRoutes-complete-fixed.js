@@ -1,11 +1,10 @@
-
 // apiRoutes.js - Milk Delivery App
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const cacheMiddleware = require('../middleware/cacheMiddleware');
 const fetch = require('node-fetch');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 console.log('==== apiRoutes.js router LOADED ====');
@@ -17,17 +16,24 @@ router.post('/login', async (req, res) => {
     console.log('📦 Full request body:', req.body);
 
     const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ success: false, error: 'Email/Username and password required' });
+    if (!username || !password) 
+      return res.status(400).json({ success: false, error: 'Email/Username and password required' });
 
-    // Correctly handle MySQL2 returned rows
+    // Query database
     const [rows] = await db.query('SELECT * FROM users WHERE email = ? OR username = ?', [username, username]);
-    if (!rows || rows.length === 0) return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    if (!rows || rows.length === 0) 
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
 
     const user = rows[0];
     const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    if (!match) 
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
 
-    const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
+    const token = jwt.sign(
+      { id: user.id, email: user.email, username: user.username, role: user.role || 'user' },
+      process.env.JWT_SECRET || 'secret',
+      { expiresIn: '7d' }
+    );
 
     res.json({
       success: true,
@@ -47,30 +53,14 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ================= HELPER FUNCTIONS =================
-async function geocodeAddress(address) {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
-  try {
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'MilkDeliveryApp/1.0 (your-email@example.com)' }
-    });
-    const data = await response.json();
-    if (data && data.length > 0) {
-      return { latitude: parseFloat(data[0].lat), longitude: parseFloat(data[0].lon) };
-    }
-  } catch (error) {
-    console.error('Geocoding error:', error);
-  }
-  return null;
-}
-
-// ================= PROFILE =================
+// ================= PROFILE ROUTE =================
 router.get('/profile', cacheMiddleware.cacheUserData(600), async (req, res) => {
   try {
     const usernameOrEmail = req.query.username;
     if (!usernameOrEmail) return res.status(400).json({ error: 'Username is required' });
 
-    const [rows] = await db.query('SELECT * FROM users WHERE username = ? OR email = ? OR name = ?', [usernameOrEmail, usernameOrEmail, usernameOrEmail]);
+    const [rows] = await db.query('SELECT * FROM users WHERE username = ? OR email = ? OR name = ?', 
+      [usernameOrEmail, usernameOrEmail, usernameOrEmail]);
     if (!rows || rows.length === 0) return res.status(404).json({ error: 'User not found' });
 
     const user = rows[0];
@@ -125,7 +115,8 @@ router.put('/users/:username', async (req, res) => {
   try {
     const username = req.params.username;
     const { street, city, state, zip } = req.body;
-    if (!street || !city || !state || !zip) return res.status(400).json({ error: 'All address fields are required' });
+    if (!street || !city || !state || !zip) 
+      return res.status(400).json({ error: 'All address fields are required' });
 
     const fullAddress = `${street}, ${city}, ${state}, ${zip}`;
     const geo = await geocodeAddress(fullAddress);
@@ -154,19 +145,14 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
     if (!username) return res.status(400).json({ error: 'Username is required' });
 
     const query = `
-      SELECT
-        subscription_type,
-        subscription_duration,
-        subscription_created_at as subscription_start_date,
-        subscription_end_date,
-        subscription_status,
-        paused_at,
-        CASE
-          WHEN subscription_status = 'active' AND subscription_end_date IS NOT NULL THEN GREATEST(DATEDIFF(subscription_end_date, CURDATE()), 0)
-          WHEN subscription_status = 'paused' AND subscription_end_date IS NOT NULL AND paused_at IS NOT NULL THEN GREATEST(DATEDIFF(subscription_end_date, paused_at), 0)
-          WHEN subscription_status = 'expired' OR subscription_end_date < CURDATE() THEN 0
-          ELSE NULL
-        END as remaining_days
+      SELECT subscription_type, subscription_duration, subscription_created_at as subscription_start_date,
+             subscription_end_date, subscription_status, paused_at,
+             CASE
+               WHEN subscription_status = 'active' AND subscription_end_date IS NOT NULL THEN GREATEST(DATEDIFF(subscription_end_date, CURDATE()), 0)
+               WHEN subscription_status = 'paused' AND subscription_end_date IS NOT NULL AND paused_at IS NOT NULL THEN GREATEST(DATEDIFF(subscription_end_date, paused_at), 0)
+               WHEN subscription_status = 'expired' OR subscription_end_date < CURDATE() THEN 0
+               ELSE NULL
+             END as remaining_days
       FROM users
       WHERE username = ? AND subscription_status IN ('active', 'paused', 'expired')
       LIMIT 1
@@ -197,24 +183,21 @@ router.get('/subscriptions/summary/:username', cacheMiddleware.cacheUserData(300
     const user = userResult[0];
 
     const [summary] = await db.query(`
-      SELECT
-        COUNT(*) as total_subscriptions,
-        SUM(CASE WHEN subscription_status = 'active' THEN 1 ELSE 0 END) as active_subscriptions,
-        SUM(CASE WHEN subscription_status = 'paused' THEN 1 ELSE 0 END) as paused_subscriptions,
-        SUM(CASE WHEN subscription_status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_subscriptions,
-        SUM(CASE WHEN subscription_status = 'active' THEN subscription_amount ELSE 0 END) as total_active_value,
-        AVG(CASE WHEN subscription_status = 'active' THEN subscription_amount ELSE NULL END) as avg_subscription_value
+      SELECT COUNT(*) as total_subscriptions,
+             SUM(CASE WHEN subscription_status = 'active' THEN 1 ELSE 0 END) as active_subscriptions,
+             SUM(CASE WHEN subscription_status = 'paused' THEN 1 ELSE 0 END) as paused_subscriptions,
+             SUM(CASE WHEN subscription_status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_subscriptions,
+             SUM(CASE WHEN subscription_status = 'active' THEN subscription_amount ELSE 0 END) as total_active_value,
+             AVG(CASE WHEN subscription_status = 'active' THEN subscription_amount ELSE NULL END) as avg_subscription_value
       FROM users
       WHERE id = ?
     `, [user.id]);
 
     const [upcomingRenewals] = await db.query(`
-      SELECT
-        id,
-        subscription_type as product_name,
-        subscription_end_date as renewal_date,
-        DATEDIFF(subscription_end_date, CURDATE()) as days_until_renewal,
-        subscription_amount as renewal_amount
+      SELECT id, subscription_type as product_name,
+             subscription_end_date as renewal_date,
+             DATEDIFF(subscription_end_date, CURDATE()) as days_until_renewal,
+             subscription_amount as renewal_amount
       FROM users
       WHERE id = ? AND subscription_status = 'active' AND subscription_end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
       ORDER BY subscription_end_date ASC
@@ -253,11 +236,7 @@ router.post('/subscriptions', async (req, res) => {
 
     const [existingSub] = await db.query('SELECT id FROM subscriptions WHERE user_id = ? AND subscription_type = ? AND status = ?', [userId, subscription_type, 'active']);
     if (existingSub && existingSub.length > 0) {
-      return res.status(400).json({
-        code: 1002,
-        error: 'Active subscription of this type already exists',
-        details: 'You already have an active subscription of this type.'
-      });
+      return res.status(400).json({ code: 1002, error: 'Active subscription of this type already exists' });
     }
 
     const [insertResult] = await db.query(`
@@ -274,5 +253,20 @@ router.post('/subscriptions', async (req, res) => {
     res.status(500).json({ code: 1004, error: 'Internal server error' });
   }
 });
+
+// ================= HELPER FUNCTION =================
+async function geocodeAddress(address) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
+    const response = await fetch(url, { headers: { 'User-Agent': 'MilkDeliveryApp/1.0' } });
+    const data = await response.json();
+    if (data && data.length > 0) {
+      return { latitude: parseFloat(data[0].lat), longitude: parseFloat(data[0].lon) };
+    }
+  } catch (err) {
+    console.error('Geocoding error:', err);
+  }
+  return null;
+}
 
 module.exports = router;
