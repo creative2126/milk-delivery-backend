@@ -8,29 +8,66 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 console.log('==== apiRoutes.js router LOADED ====');
 
-// ================= LOGIN ROUTE =================
+// ================= LOGIN ROUTE WITH DEBUG LOGGING =================
 router.post('/login', async (req, res) => {
   try {
-    const { username, password } = req.body; // username can be email or username
+    console.log('📥 POST /api/login - Origin:', req.headers.origin);
+    console.log('📦 Request body:', JSON.stringify(req.body));
+    
+    const { username, password } = req.body;
+    
+    console.log('🔐 Login attempt:', username);
+    console.log('🔑 Password received:', password ? 'YES' : 'NO', 'Length:', password?.length);
+    
     if (!username || !password) {
+      console.log('❌ Missing credentials');
       return res.status(400).json({ success: false, error: 'Email/Username and password required' });
     }
 
     // Query user by email or username
+    console.log('🔍 Searching for user:', username);
     const users = await db.query('SELECT * FROM users WHERE email = ? OR username = ?', [username, username]);
+    
+    console.log('📊 Query result:', users ? `Found ${users.length} user(s)` : 'No users found');
+    
     if (!users || users.length === 0) {
+      console.log('❌ User not found in database');
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
     const user = users[0];
+    console.log('👤 User found:', {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      hasPassword: !!user.password,
+      passwordLength: user.password?.length
+    });
 
     // Compare password (hashed)
+    console.log('🔐 Comparing passwords...');
+    console.log('   - Input password length:', password.length);
+    console.log('   - Stored hash length:', user.password?.length);
+    
     const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    console.log('✅ Password match result:', match);
+    
+    if (!match) {
+      console.log('❌ Password mismatch');
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
 
     // Generate JWT token
-    const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
+    console.log('🎫 Generating JWT token...');
+    const token = jwt.sign(
+      { id: user.id, email: user.email }, 
+      process.env.JWT_SECRET || 'secret', 
+      { expiresIn: '7d' }
+    );
+    console.log('✅ Token generated successfully');
 
+    console.log('✨ Login successful for:', user.email);
+    
     res.json({
       success: true,
       message: 'Login successful',
@@ -44,7 +81,8 @@ router.post('/login', async (req, res) => {
       token
     });
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('💥 Login error:', error);
+    console.error('Stack trace:', error.stack);
     res.status(500).json({ success: false, error: 'Server error' });
   }
 });
