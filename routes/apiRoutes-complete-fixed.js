@@ -98,6 +98,8 @@ router.post('/login', async (req, res) => {
       [searchValue, searchValue, searchValue]
     );
 
+    console.log('Query result rows:', rows);
+
     if (!rows || rows.length === 0) {
       console.log('❌ Login failed: User not found -', searchValue);
       return res.status(401).json({ 
@@ -107,36 +109,34 @@ router.post('/login', async (req, res) => {
     }
 
     const user = rows[0];
+    console.log('User found:', { id: user.id, email: user.email, hasPassword: !!user.password });
 
-    // Check if password exists and is not empty
-    if (!user.password || user.password.trim() === '') {
+    // Check if password exists
+    if (!user.password) {
       console.error('❌ User has no password stored:', user.email);
-      console.error('User data:', user);
-      
-      // For testing: Allow login if password matches a plain text password
-      // Remove this in production
-      if (password === 'test123' || password === 'password') {
-        console.log('⚠️  Using test password - REMOVE IN PRODUCTION');
-        // Hash and update the password
-        const hashedPassword = await bcrypt.hash(password, 10);
-        await db.query('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, user.id]);
-      } else {
-        return res.status(500).json({ 
-          success: false, 
-          error: 'Account not properly configured. Please reset your password.' 
-        });
-      }
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Account not properly configured. Please contact support.' 
+      });
     }
+
+    // Ensure password is a string
+    const storedPasswordHash = String(user.password).trim();
+    console.log('Comparing passwords...');
+    console.log('Stored hash length:', storedPasswordHash.length);
+    console.log('Stored hash starts with:', storedPasswordHash.substring(0, 10));
 
     // Compare password with hash
     let match = false;
     try {
-      match = await bcrypt.compare(password, user.password);
+      match = await bcrypt.compare(password, storedPasswordHash);
+      console.log('Password comparison result:', match);
     } catch (bcryptError) {
       console.error('❌ Bcrypt error:', bcryptError.message);
+      console.error('Stored hash:', storedPasswordHash);
       return res.status(500).json({ 
         success: false, 
-        error: 'Password verification failed' 
+        error: 'Password verification failed: ' + bcryptError.message
       });
     }
     
@@ -147,6 +147,8 @@ router.post('/login', async (req, res) => {
         error: 'Invalid credentials' 
       });
     }
+
+    console.log('✓ Password verified for', user.email);
 
     // Generate JWT token
     const token = jwt.sign(
