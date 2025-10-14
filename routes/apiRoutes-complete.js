@@ -1,40 +1,39 @@
+// apiRoutes.js - Milk Delivery App
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const queryOptimizer = require('../utils/queryOptimizer');
 const cacheMiddleware = require('../middleware/cacheMiddleware');
 const fetch = require('node-fetch');
-const bcrypt = require('bcrypt'); // Optional: only if passwords are hashed
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 console.log('==== apiRoutes.js router LOADED ====');
 
 // ================= LOGIN ROUTE =================
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ success: false, error: 'Email and password required' });
+    const { username, password } = req.body; // username can be email or username
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: 'Email/Username and password required' });
     }
 
-    // Query user by email
-    const users = await db.query('SELECT * FROM users WHERE email = ?', [email]);
+    // Query user by email or username
+    const users = await db.query('SELECT * FROM users WHERE email = ? OR username = ?', [username, username]);
     if (!users || users.length === 0) {
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
     const user = users[0];
 
-    // If passwords are hashed with bcrypt
-    // const match = await bcrypt.compare(password, user.password);
-    // if (!match) return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    // Compare password (hashed)
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(401).json({ success: false, error: 'Invalid credentials' });
 
-    // Plain text password (not recommended)
-    if (user.password !== password) {
-      return res.status(401).json({ success: false, error: 'Invalid credentials' });
-    }
+    // Generate JWT token
+    const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
 
-    // Login successful
     res.json({
       success: true,
+      message: 'Login successful',
       user: {
         id: user.id,
         name: user.name,
@@ -42,7 +41,7 @@ router.post('/login', async (req, res) => {
         username: user.username,
         phone: user.phone
       },
-      token: 'dummy-token-for-now'
+      token
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -192,7 +191,7 @@ router.get('/subscriptions/remaining/:username', cacheMiddleware.cacheUserData(3
 });
 
 // ================= SUBSCRIPTIONS SUMMARY =================
-router.get('/api/subscriptions/summary/:username', cacheMiddleware.cacheUserData(300), async (req, res) => {
+router.get('/subscriptions/summary/:username', cacheMiddleware.cacheUserData(300), async (req, res) => {
   try {
     const username = req.params.username;
     if (!username) return res.status(400).json({ error: 'Username is required' });
