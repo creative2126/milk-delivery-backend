@@ -1,4 +1,4 @@
-// apiRoutes.js - Milk Delivery App
+// apiRoutes-complete-fixed.js - Milk Delivery App (COMPLETE FIXED VERSION)
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
@@ -9,47 +9,174 @@ const jwt = require('jsonwebtoken');
 
 console.log('==== apiRoutes.js router LOADED ====');
 
-// ================= LOGIN ROUTE =================
+const SECRET_KEY = process.env.JWT_SECRET || "mysecretkey";
+
+// ================= REGISTRATION ROUTE =================
+router.post('/users', async (req, res) => {
+  try {
+    console.log('📥 POST /api/users (REGISTRATION)');
+    console.log('📦 Request body:', req.body);
+
+    const { username, password, name, phone, email, street, city, state, zip } = req.body;
+
+    // Validation
+    if (!username || !password || !email) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Username, password, and email are required' 
+      });
+    }
+
+    // Check if user already exists
+    const [existingUsers] = await db.query(
+      'SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1', 
+      [email, username]
+    );
+
+    if (existingUsers && existingUsers.length > 0) {
+      console.log('❌ User already exists');
+      return res.status(409).json({ 
+        success: false, 
+        error: 'User with this email or username already exists' 
+      });
+    }
+
+    // Hash password with 10 salt rounds
+    console.log('🔐 Hashing password...');
+    const hashedPassword = await bcrypt.hash(password, 10);
+    console.log('✅ Password hashed:', hashedPassword.substring(0, 29) + '...');
+
+    // Geocode address if provided
+    let latitude = null;
+    let longitude = null;
+    if (street && city && state && zip) {
+      const fullAddress = `${street}, ${city}, ${state}, ${zip}`;
+      const geo = await geocodeAddress(fullAddress);
+      latitude = geo?.latitude || null;
+      longitude = geo?.longitude || null;
+    }
+
+    // Insert user into database
+    await db.query(`
+      INSERT INTO users 
+      (username, password, name, phone, email, street, city, state, zip, latitude, longitude, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+    `, [username, hashedPassword, name || null, phone || null, email, street || null, city || null, state || null, zip || null, latitude, longitude]);
+
+    console.log('✅ User registered successfully:', username);
+
+    res.status(201).json({
+      success: true,
+      message: 'User registered successfully'
+    });
+
+  } catch (error) {
+    console.error('💥 Registration error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error' 
+    });
+  }
+});
+
+// ================= LOGIN ROUTE (FIXED) =================
 router.post('/login', async (req, res) => {
   try {
-    console.log('📥 POST /api/login - Origin:', req.headers.origin);
-    console.log('📦 Full request body:', req.body);
+    console.log('📥 POST /api/login');
+    console.log('📦 Request body:', req.body);
+    console.log('📍 Origin:', req.headers.origin);
 
     const { username, password } = req.body;
-    if (!username || !password) 
-      return res.status(400).json({ success: false, error: 'Email/Username and password required' });
+    
+    // Validation
+    if (!username || !password) {
+      console.log('❌ Missing credentials');
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Email/Username and password required' 
+      });
+    }
 
     // Query database
-    const [rows] = await db.query('SELECT * FROM users WHERE email = ? OR username = ?', [username, username]);
-    if (!rows || rows.length === 0) 
-      return res.status(401).json({ success: false, error: 'Invalid credentials' });
-
-    const user = rows[0];
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) 
-      return res.status(401).json({ success: false, error: 'Invalid credentials' });
-
-    const token = jwt.sign(
-      { id: user.id, email: user.email, username: user.username, role: user.role || 'user' },
-      process.env.JWT_SECRET || 'secret',
-      { expiresIn: '7d' }
+    console.log('🔍 Searching for user:', username);
+    const [result] = await db.query(
+      'SELECT * FROM users WHERE email = ? OR username = ?', 
+      [username, username]
     );
+
+    if (!result || result.length === 0) {
+      console.log('❌ User not found');
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Invalid credentials' 
+      });
+    }
+
+    const user = result[0];
+    console.log('✅ User found:', {
+      id: user.id,
+      username: user.username,
+      email: user.email
+    });
+
+    // Debug password info
+    console.log('🔍 Password hash from DB:', user.password.substring(0, 29) + '...');
+    console.log('🔍 Hash format check:', {
+      starts_with_2a: user.password.startsWith('$2a$'),
+      starts_with_2b: user.password.startsWith('$2b$'),
+      length: user.password.length
+    });
+    console.log('🔍 Input password length:', password.length);
+
+    // Compare passwords
+    console.log('🔐 Comparing passwords...');
+    const match = await bcrypt.compare(password, user.password);
+    console.log('🔍 Password match result:', match);
+
+    if (!match) {
+      console.log('❌ Password mismatch');
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Invalid credentials' 
+      });
+    }
+
+    console.log('✅ Password matched successfully');
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { 
+        id: user.id, 
+        username: user.username, 
+        email: user.email, 
+        role: user.role || 'user' 
+      },
+      SECRET_KEY,
+      { expiresIn: '24h' }
+    );
+
+    console.log('✅ Login successful for user:', user.username);
 
     res.json({
       success: true,
-      message: 'Login successful',
+      token,
+      userName: user.name || user.username,
+      userEmail: user.email,
       user: {
         id: user.id,
         name: user.name,
         email: user.email,
         username: user.username,
         phone: user.phone
-      },
-      token
+      }
     });
+
   } catch (error) {
     console.error('💥 Login error:', error);
-    res.status(500).json({ success: false, error: 'Server error' });
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error' 
+    });
   }
 });
 
