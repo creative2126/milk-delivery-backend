@@ -1,7 +1,7 @@
-// routes/apiRoutes.js
+// routes/apiRoutes.js - Fixed for Existing Table Structure
 const express = require('express');
 const router = express.Router();
-const db = require('../db'); // Your database connection module
+const db = require('../db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const fetch = require('node-fetch');
@@ -20,7 +20,7 @@ router.post('/users', async (req, res) => {
 
     // Check if user already exists
     const [existingUsers] = await db.query(
-      'SELECT * FROM users WHERE email = ? OR username = ?',
+      'SELECT id FROM users WHERE email = ? OR username = ?',
       [email, email]
     );
 
@@ -34,10 +34,11 @@ router.post('/users', async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Insert new user
+    // Insert new user with all required fields
     const [result] = await db.query(
-      'INSERT INTO users (name, email, username, phone, password) VALUES (?, ?, ?, ?, ?)',
-      [name, email, email, phone, hashedPassword]
+      `INSERT INTO users (name, email, username, phone, password, role) 
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [name, email, email, phone, hashedPassword, 'user']
     );
 
     console.log('✓ User registered:', email);
@@ -63,10 +64,10 @@ router.post('/users', async (req, res) => {
   }
 });
 
-// ================= LOGIN ROUTE - FIXED =================
+// ================= LOGIN ROUTE - FIXED FOR EXISTING TABLE =================
 router.post('/login', async (req, res) => {
   try {
-    // Accept multiple field names: email, username, phone, or emailOrPhone
+    // Accept multiple field names
     const { email, username, phone, password, emailOrPhone } = req.body;
     
     if (!password) {
@@ -86,14 +87,19 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    console.log('Login attempt with:', searchValue);
+
     // Query database - search by email, username, or phone
     const [rows] = await db.query(
-      'SELECT * FROM users WHERE email = ? OR username = ? OR phone = ?',
+      `SELECT id, username, email, password, name, phone, role 
+       FROM users 
+       WHERE email = ? OR username = ? OR phone = ?
+       LIMIT 1`,
       [searchValue, searchValue, searchValue]
     );
 
     if (!rows || rows.length === 0) {
-      console.log('Login failed: User not found -', searchValue);
+      console.log('❌ Login failed: User not found -', searchValue);
       return res.status(401).json({ 
         success: false, 
         error: 'Invalid credentials' 
@@ -102,20 +108,40 @@ router.post('/login', async (req, res) => {
 
     const user = rows[0];
 
-    // Check if password field exists
-    if (!user.password) {
-      console.error('User record incomplete for:', searchValue);
-      return res.status(500).json({ 
-        success: false, 
-        error: 'User record incomplete' 
-      });
+    // Check if password exists and is not empty
+    if (!user.password || user.password.trim() === '') {
+      console.error('❌ User has no password stored:', user.email);
+      console.error('User data:', user);
+      
+      // For testing: Allow login if password matches a plain text password
+      // Remove this in production
+      if (password === 'test123' || password === 'password') {
+        console.log('⚠️  Using test password - REMOVE IN PRODUCTION');
+        // Hash and update the password
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await db.query('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, user.id]);
+      } else {
+        return res.status(500).json({ 
+          success: false, 
+          error: 'Account not properly configured. Please reset your password.' 
+        });
+      }
     }
 
     // Compare password with hash
-    const match = await bcrypt.compare(password, user.password);
+    let match = false;
+    try {
+      match = await bcrypt.compare(password, user.password);
+    } catch (bcryptError) {
+      console.error('❌ Bcrypt error:', bcryptError.message);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Password verification failed' 
+      });
+    }
     
     if (!match) {
-      console.log('Login failed: Invalid password for', searchValue);
+      console.log('❌ Login failed: Invalid password for', user.email);
       return res.status(401).json({ 
         success: false, 
         error: 'Invalid credentials' 
@@ -139,12 +165,13 @@ router.post('/login', async (req, res) => {
         name: user.name,
         email: user.email,
         username: user.username,
-        phone: user.phone
+        phone: user.phone,
+        role: user.role || 'user'
       },
       token
     });
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('❌ Login error:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Server error',
@@ -156,28 +183,43 @@ router.post('/login', async (req, res) => {
 // ================= PROFILE ROUTE =================
 router.get('/profile', async (req, res) => {
   try {
-    const usernameOrEmail = req.query.username;
+    const usernameOrEmail = req.query.username || req.query.email || req.query.id;
+    
     if (!usernameOrEmail) {
-      return res.status(400).json({ error: 'Username is required' });
+      return res.status(400).json({ 
+        success: false,
+        error: 'Username, email, or ID is required' 
+      });
     }
 
-    const [rows] = await db.query(
-      'SELECT * FROM users WHERE username = ? OR email = ? OR name = ?',
-      [usernameOrEmail, usernameOrEmail, usernameOrEmail]
-    );
+    let query = `SELECT id, username, email, name, phone, address, city, state, zip, 
+                 subscription_type, subscription_status, role, created_at 
+                 FROM users WHERE`;
+    let params = [];
+
+    // Check if it's a number (ID) or string (username/email)
+    if (!isNaN(usernameOrEmail)) {
+      query += ` id = ?`;
+      params = [usernameOrEmail];
+    } else {
+      query += ` username = ? OR email = ? OR name = ?`;
+      params = [usernameOrEmail, usernameOrEmail, usernameOrEmail];
+    }
+
+    const [rows] = await db.query(query, params);
 
     if (!rows || rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ 
+        success: false,
+        error: 'User not found' 
+      });
     }
 
     const user = rows[0];
     
-    // Don't send password in response
-    const { password, ...userWithoutPassword } = user;
-    
     res.json({ 
       success: true,
-      user: userWithoutPassword 
+      user
     });
   } catch (error) {
     console.error('Profile fetch error:', error);
@@ -206,7 +248,8 @@ router.put('/users/:username', async (req, res) => {
     const geo = await geocodeAddress(fullAddress);
 
     const [result] = await db.query(
-      `UPDATE users SET street=?, city=?, state=?, zip=?, latitude=?, longitude=? WHERE username=?`,
+      `UPDATE users SET street=?, city=?, state=?, zip=?, latitude=?, longitude=? 
+       WHERE username=?`,
       [street, city, state, zip, geo?.latitude || null, geo?.longitude || null, username]
     );
 
@@ -289,6 +332,50 @@ router.put('/profile', async (req, res) => {
     res.status(500).json({ 
       success: false,
       error: 'Failed to update profile',
+      details: error.message 
+    });
+  }
+});
+
+// ================= RESET PASSWORD =================
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+    
+    if (!email || !newPassword) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Email and new password are required' 
+      });
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password
+    const [result] = await db.query(
+      'UPDATE users SET password = ? WHERE email = ?',
+      [hashedPassword, email]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'User not found' 
+      });
+    }
+
+    console.log('✓ Password reset for:', email);
+
+    res.json({ 
+      success: true, 
+      message: 'Password reset successfully' 
+    });
+  } catch (error) {
+    console.error('Password reset error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to reset password',
       details: error.message 
     });
   }
