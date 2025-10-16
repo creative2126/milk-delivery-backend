@@ -11,6 +11,8 @@ router.post('/users', async (req, res) => {
   try {
     const { name, email, phone, password, username } = req.body;
     
+    console.log('Registration attempt:', { name, email, phone, hasPassword: !!password });
+    
     if (!name || !email || !phone || !password) {
       return res.status(400).json({ 
         success: false, 
@@ -18,36 +20,61 @@ router.post('/users', async (req, res) => {
       });
     }
 
-    // Check if user already exists
-    const [existingUsers] = await db.query(
+    // Check if user already exists - FIXED
+    const existingResult = await db.query(
       'SELECT id FROM users WHERE email = ? OR username = ?',
       [email, email]
     );
 
-    if (existingUsers && existingUsers.length > 0) {
+    console.log('Existing user check result:', existingResult);
+
+    // Handle different result formats
+    let existingUsers = null;
+    if (Array.isArray(existingResult)) {
+      // If result is [rows, fields]
+      existingUsers = existingResult[0];
+    } else if (existingResult && Array.isArray(existingResult.rows)) {
+      // If result is {rows: [...], fields: [...]}
+      existingUsers = existingResult.rows;
+    } else {
+      existingUsers = existingResult;
+    }
+
+    if (existingUsers && Array.isArray(existingUsers) && existingUsers.length > 0) {
+      console.log('❌ Registration failed: Email already exists -', email);
       return res.status(409).json({ 
         success: false, 
         error: 'Email already registered' 
       });
     }
 
+    console.log('✓ Email available, proceeding with registration');
+
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Insert new user with all required fields
-    const [result] = await db.query(
+    const insertResult = await db.query(
       `INSERT INTO users (name, email, username, phone, password, role) 
        VALUES (?, ?, ?, ?, ?, ?)`,
       [name, email, email, phone, hashedPassword, 'user']
     );
 
-    console.log('✓ User registered:', email);
+    // Handle insert result
+    let insertId;
+    if (Array.isArray(insertResult)) {
+      insertId = insertResult[0].insertId;
+    } else {
+      insertId = insertResult.insertId;
+    }
+
+    console.log('✓ User registered successfully:', { id: insertId, email });
 
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
       user: {
-        id: result.insertId,
+        id: insertId,
         name,
         email,
         phone,
@@ -55,7 +82,7 @@ router.post('/users', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Registration error:', error);
+    console.error('❌ Registration error:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Server error during registration',
@@ -98,7 +125,7 @@ router.post('/login', async (req, res) => {
       [searchValue, searchValue, searchValue]
     );
 
-    console.log('Query result:', result);
+    console.log('Query result type:', Array.isArray(result) ? 'Array' : typeof result);
 
     // Handle both array and direct object returns
     let user;
@@ -172,9 +199,13 @@ router.post('/login', async (req, res) => {
 
     console.log('✓ User logged in:', user.email);
 
+    // FIXED: Return proper user data for frontend
     res.json({
       success: true,
       message: 'Login successful',
+      userName: user.name,
+      userEmail: user.email,
+      phone: user.phone,
       user: {
         id: user.id,
         name: user.name,
@@ -221,7 +252,8 @@ router.get('/profile', async (req, res) => {
       params = [usernameOrEmail, usernameOrEmail, usernameOrEmail];
     }
 
-    const [rows] = await db.query(query, params);
+    const result = await db.query(query, params);
+    const rows = Array.isArray(result) ? result[0] : result;
 
     if (!rows || rows.length === 0) {
       return res.status(404).json({ 
@@ -262,13 +294,15 @@ router.put('/users/:username', async (req, res) => {
     const fullAddress = `${street}, ${city}, ${state}, ${zip}`;
     const geo = await geocodeAddress(fullAddress);
 
-    const [result] = await db.query(
+    const result = await db.query(
       `UPDATE users SET street=?, city=?, state=?, zip=?, latitude=?, longitude=? 
        WHERE username=?`,
       [street, city, state, zip, geo?.latitude || null, geo?.longitude || null, username]
     );
 
-    if (result.affectedRows === 0) {
+    const affectedRows = Array.isArray(result) ? result[0].affectedRows : result.affectedRows;
+
+    if (affectedRows === 0) {
       return res.status(404).json({ 
         success: false,
         error: 'User not found' 
@@ -329,9 +363,10 @@ router.put('/profile', async (req, res) => {
     values.push(userId);
 
     const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
-    const [result] = await db.query(query, values);
+    const result = await db.query(query, values);
+    const affectedRows = Array.isArray(result) ? result[0].affectedRows : result.affectedRows;
 
-    if (result.affectedRows === 0) {
+    if (affectedRows === 0) {
       return res.status(404).json({ 
         success: false,
         error: 'User not found' 
@@ -368,12 +403,14 @@ router.post('/reset-password', async (req, res) => {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     // Update password
-    const [result] = await db.query(
+    const result = await db.query(
       'UPDATE users SET password = ? WHERE email = ?',
       [hashedPassword, email]
     );
 
-    if (result.affectedRows === 0) {
+    const affectedRows = Array.isArray(result) ? result[0].affectedRows : result.affectedRows;
+
+    if (affectedRows === 0) {
       return res.status(404).json({ 
         success: false,
         error: 'User not found' 
