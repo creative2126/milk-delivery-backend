@@ -2,8 +2,8 @@ const Razorpay = require('razorpay');
 
 // Initialize Razorpay instance with correct credentials
 const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_live_RMt4yU66tg8tUM',
-  key_secret: process.env.RAZORPAY_KEY_SECRET || 'bZ6Jm3DCfU4i0j1txZyN7fxw'
+  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_S0ZwzffTfW3Mcc',
+  key_secret: process.env.RAZORPAY_KEY_SECRET || 'ZQ2IltKiJ0Rhgm9kdoMgxP1V'
 });
 
 /**
