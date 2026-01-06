@@ -4,6 +4,9 @@ const crypto = require('crypto');
 const Razorpay = require('razorpay');
 const db = require('../db');
 
+// ✅ TELEGRAM ALERT UTILITY
+const { sendTelegramAlert } = require('../utils/telegram');
+
 // Import centralized Razorpay configuration
 const { getCredentials } = require('../razorpay-config');
 const credentials = getCredentials();
@@ -15,10 +18,10 @@ const razorpay = new Razorpay({
 });
 
 // Helper to format date for MySQL
-const formatDateForMySQL = (date) => date.toISOString().slice(0, 19).replace('T', ' ');
+const formatDateForMySQL = (date) =>
+  date.toISOString().slice(0, 19).replace('T', ' ');
 
 // Helper to calculate subscription amount
-
 function calculateAmount(type, duration) {
   const prices = {
     '500ml': { '6days': 300, '15days': 750 },
@@ -32,7 +35,12 @@ router.post('/create-order', async (req, res) => {
   try {
     const { amount, subscription_type, duration, username } = req.body;
 
-    console.log('Creating order with data:', { amount, subscription_type, duration, username });
+    console.log('Creating order with data:', {
+      amount,
+      subscription_type,
+      duration,
+      username
+    });
 
     if (!amount || !subscription_type || !duration || !username) {
       const missingFields = [];
@@ -48,19 +56,16 @@ router.post('/create-order', async (req, res) => {
       });
     }
 
-    // TESTING MODE: Use the amount sent from frontend (should be ₹1)
     const testAmount = parseFloat(amount);
-    console.log('TESTING MODE: Using amount from request:', testAmount);
 
     const options = {
-      amount: Math.round(testAmount * 100), // paise (₹1 = 100 paise)
+      amount: Math.round(testAmount * 100),
       currency: 'INR',
       receipt: `receipt_${Date.now()}`,
       notes: { subscription_type, duration, username }
     };
 
     const order = await razorpay.orders.create(options);
-    console.log('Order created successfully:', order.id, 'Amount:', order.amount, 'paise');
 
     res.json({
       success: true,
@@ -72,7 +77,11 @@ router.post('/create-order', async (req, res) => {
 
   } catch (error) {
     console.error('Create order error:', error);
-    res.status(500).json({ success: false, message: 'Failed to create order', error: error.message });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create order',
+      error: error.message
+    });
   }
 });
 
@@ -80,7 +89,6 @@ router.post('/create-order', async (req, res) => {
 router.post('/verify-payment', async (req, res) => {
   const startTime = Date.now();
   console.log('=== PAYMENT VERIFICATION STARTED ===');
-  console.log('Request body:', JSON.stringify(req.body, null, 2));
 
   try {
     const {
@@ -98,8 +106,6 @@ router.post('/verify-payment', async (req, res) => {
       username
     } = req.body;
 
-    console.log('Address with coordinates:', address);
-
     // Validate required fields
     const missingFields = [];
     if (!razorpay_order_id) missingFields.push('razorpay_order_id');
@@ -110,149 +116,65 @@ router.post('/verify-payment', async (req, res) => {
     if (!username) missingFields.push('username');
 
     if (missingFields.length > 0) {
-      console.error('Missing required fields:', missingFields);
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Missing required payment verification fields', 
-        missing_fields: missingFields 
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required payment verification fields',
+        missing_fields: missingFields
       });
     }
 
     // Verify Razorpay signature
-    console.log('Verifying payment signature...');
     const body = razorpay_order_id + '|' + razorpay_payment_id;
     const expectedSignature = crypto
       .createHmac('sha256', credentials.key_secret)
-      .update(body.toString())
+      .update(body)
       .digest('hex');
 
     if (expectedSignature !== razorpay_signature) {
-      console.error('Signature verification failed');
-      return res.status(400).json({ success: false, message: 'Invalid payment signature' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid payment signature'
+      });
     }
-    console.log('Signature verified successfully');
 
-    // Fetch payment details from Razorpay
-    console.log('Fetching payment details from Razorpay...');
     const payment = await razorpay.payments.fetch(razorpay_payment_id);
-    
-    console.log('Payment details:', {
-      id: payment.id,
-      status: payment.status,
-      amount: payment.amount,
-      order_id: payment.order_id
-    });
 
     if (!['authorized', 'captured'].includes(payment.status)) {
-      console.error('Invalid payment status:', payment.status);
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Payment not completed', 
-        payment_status: payment.status 
+      return res.status(400).json({
+        success: false,
+        message: 'Payment not completed'
       });
     }
 
-    if (payment.order_id !== razorpay_order_id) {
-      console.error('Order ID mismatch');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Order ID mismatch' 
-      });
-    }
-
-    console.log('Payment verified with Razorpay successfully');
-
-    // TESTING MODE: Calculate amount using test prices (₹1)
     const amount = calculateAmount(subscription_type, duration);
-    console.log('TESTING MODE - Calculated amount:', amount);
 
     const startDate = new Date();
     const daysToAdd = duration === '6days' ? 7 : 17;
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + daysToAdd);
 
-    console.log('Subscription dates:', {
-      start: formatDateForMySQL(startDate),
-      end: formatDateForMySQL(endDate),
-      days: daysToAdd
-    });
-
-    // Check user existence by email (case-insensitive)
-    console.log('=== USER LOOKUP DEBUG ===');
-    console.log('Searching for user with email:', username);
-    console.log('Email type:', typeof username);
-    console.log('Email length:', username ? username.length : 'null');
-    
-    // FIXED: Don't destructure, get the full result
-    const result = await db.execute(
-      `SELECT id, username, email, name FROM users WHERE LOWER(email) = LOWER(?)`,
+    const [rows] = await db.execute(
+      `SELECT id, name, email, phone FROM users WHERE LOWER(email) = LOWER(?)`,
       [username]
     );
 
-    console.log('Database result structure:', typeof result);
-    console.log('Result is array?', Array.isArray(result));
-    console.log('Result[0] type:', typeof result[0]);
-    console.log('Full result:', JSON.stringify(result));
-
-    // Handle different response formats from mysql2
-    let rows;
-    if (Array.isArray(result) && Array.isArray(result[0])) {
-      // Standard mysql2 format: [[rows], fields]
-      rows = result[0];
-    } else if (Array.isArray(result)) {
-      // Direct array of rows
-      rows = result;
-    } else {
-      // Unknown format
-      console.error('Unexpected database result format');
-      rows = [];
-    }
-
-    console.log('Processed rows:', rows);
-    console.log('Query returned rows count:', rows ? rows.length : 0);
-
     if (!rows || rows.length === 0) {
-      console.error('❌ User not found in database');
-      console.error('Searched for email:', username);
-      
-      // Try to find if user exists with different criteria
-      const allUsersResult = await db.execute(`SELECT email FROM users LIMIT 10`);
-      const allUsers = Array.isArray(allUsersResult[0]) ? allUsersResult[0] : allUsersResult;
-      console.error('Sample emails in database:', allUsers.map(u => u.email));
-      
-      return res.status(400).json({ 
-        success: false, 
-        message: 'User not found. Please register first.', 
-        searched_for: username,
-        hint: 'Check if this email exists in your database'
+      return res.status(400).json({
+        success: false,
+        message: 'User not found'
       });
     }
 
-    const foundUser = rows[0];
-    console.log('✅ Found user:', { 
-      id: foundUser.id, 
-      email: foundUser.email, 
-      name: foundUser.name,
-      username: foundUser.username
-    });
+    const user = rows[0];
 
-    // Use the pre-formatted address from frontend (already includes coordinates)
-    // If address is not provided, build it from parts
-    const fullAddress = address || 
-      [building_name, flat_number, landmark].filter(Boolean).join(', ');
+    const fullAddress =
+      address || [building_name, flat_number, landmark].filter(Boolean).join(', ');
 
-    console.log('Full address to save:', fullAddress);
-    console.log('Address includes coordinates:', fullAddress.includes('Lat:') && fullAddress.includes('Lng:'));
-
-    // Update subscription in database
-    console.log('Updating subscription in database...');
-    const updateStart = Date.now();
-
-    const updateResult = await db.execute(
+    await db.execute(
       `UPDATE users SET
         subscription_type = ?,
         subscription_duration = ?,
-        subscription_status = ?,
+        subscription_status = 'active',
         subscription_start_date = ?,
         subscription_end_date = ?,
         subscription_amount = ?,
@@ -262,13 +184,11 @@ router.post('/verify-payment', async (req, res) => {
         subscription_flat_number = ?,
         subscription_payment_id = ?,
         subscription_created_at = NOW(),
-        subscription_updated_at = NOW(),
-        updated_at = NOW()
+        subscription_updated_at = NOW()
       WHERE LOWER(email) = LOWER(?)`,
       [
         subscription_type,
         duration,
-        'active',
         formatDateForMySQL(startDate),
         formatDateForMySQL(endDate),
         amount,
@@ -281,55 +201,35 @@ router.post('/verify-payment', async (req, res) => {
       ]
     );
 
-    // Handle update result format
-    const updateInfo = Array.isArray(updateResult) ? updateResult[0] : updateResult;
-
-    console.log('UPDATE completed in', Date.now() - updateStart, 'ms');
-    console.log('Update result:', {
-      affectedRows: updateInfo.affectedRows,
-      changedRows: updateInfo.changedRows,
-      warningCount: updateInfo.warningCount
-    });
-
-    if (updateInfo.affectedRows === 0) {
-      throw new Error('UPDATE affected 0 rows - user not found after verification');
+    // 🔔 TELEGRAM ADMIN ALERT (NON-BLOCKING)
+    try {
+      await sendTelegramAlert(
+        `🥛 <b>NEW ORDER RECEIVED</b>\n\n` +
+        `👤 <b>Name:</b> ${user.name || 'N/A'}\n` +
+        `📧 <b>Email:</b> ${user.email}\n` +
+        `📞 <b>Phone:</b> ${user.phone || 'N/A'}\n\n` +
+        `📦 <b>Type:</b> ${subscription_type}\n` +
+        `⏳ <b>Duration:</b> ${duration}\n` +
+        `💰 <b>Amount:</b> ₹${amount}\n\n` +
+        `📍 <b>Address:</b>\n${fullAddress}\n\n` +
+        `🕒 ${new Date().toLocaleString()}`
+      );
+    } catch (tgErr) {
+      console.error('Telegram alert failed:', tgErr.message);
     }
-
-    console.log('Subscription saved successfully for user:', username);
-    console.log('=== PAYMENT VERIFICATION COMPLETED SUCCESSFULLY ===');
-    console.log('Total processing time:', Date.now() - startTime, 'ms');
 
     res.json({
       success: true,
       message: 'Payment verified and subscription created successfully',
-      subscription_id: razorpay_payment_id,
-      subscription: {
-        type: subscription_type,
-        duration: duration,
-        amount: amount,
-        start_date: formatDateForMySQL(startDate),
-        end_date: formatDateForMySQL(endDate),
-        status: 'active'
-      }
+      subscription_id: razorpay_payment_id
     });
 
   } catch (error) {
-    console.error('=== PAYMENT VERIFICATION FAILED ===');
-    console.error('Error at:', Date.now() - startTime, 'ms');
-    console.error('Error details:', {
-      message: error.message,
-      code: error.code,
-      errno: error.errno,
-      sqlState: error.sqlState,
-      sqlMessage: error.sqlMessage,
-      stack: error.stack
-    });
-
-    res.status(500).json({ 
-      success: false, 
-      message: 'Payment verification failed', 
-      error: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    console.error('PAYMENT VERIFICATION FAILED:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Payment verification failed',
+      error: error.message
     });
   }
 });
@@ -338,38 +238,32 @@ router.post('/verify-payment', async (req, res) => {
 router.get('/verify-payment/status/:payment_id', async (req, res) => {
   try {
     const { payment_id } = req.params;
-    
-    console.log('Checking payment status for:', payment_id);
 
-    const result = await db.execute(
-      `SELECT subscription_type, subscription_duration, subscription_status, 
+    const [rows] = await db.execute(
+      `SELECT subscription_type, subscription_duration, subscription_status,
               subscription_start_date, subscription_end_date, subscription_amount,
-              subscription_address, subscription_building_name, subscription_flat_number,
-              subscription_payment_id, subscription_created_at, subscription_updated_at
+              subscription_address
        FROM users WHERE subscription_payment_id = ?`,
       [payment_id]
     );
 
-    const rows = Array.isArray(result[0]) ? result[0] : result;
-
-    if (rows.length === 0) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Payment not found' 
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Payment not found'
       });
     }
 
-    res.json({ 
-      success: true, 
-      subscription: rows[0] 
+    res.json({
+      success: true,
+      subscription: rows[0]
     });
 
   } catch (error) {
-    console.error('Payment status check error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to check payment status', 
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      message: 'Failed to check payment status',
+      error: error.message
     });
   }
 });
