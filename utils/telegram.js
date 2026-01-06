@@ -1,15 +1,29 @@
-const axios = require('axios');
+const axios = require("axios");
 
-const BOT_TOKEN = '8181071521:AAElH_NuLN18892seBCZ_vlxXbXmcy7w3Is';
-const CHAT_ID = '1003453123855';
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const CHAT_ID = "-1003453123855";
 
-async function sendTelegramAlert(message) {
-  const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-  await axios.post(url, {
-    chat_id: CHAT_ID,
-    text: message,
-    parse_mode: 'HTML'
-  });
+async function sendTelegramMessage(text) {
+  try {
+    const res = await axios.post(
+      `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
+      {
+        chat_id: CHAT_ID,
+        text,
+        parse_mode: "HTML"
+      },
+      {
+        headers: { "Content-Type": "application/json" }
+      }
+    );
+
+    console.log("✅ Telegram sent:", res.data.result.message_id);
+  } catch (err) {
+    console.error(
+      "❌ Telegram failed:",
+      err.response?.data || err.message
+    );
+  }
 }
 
-module.exports = { sendTelegramAlert };
+module.exports = { sendTelegramMessage };
