@@ -1,6 +1,3 @@
-
-
-
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -16,14 +13,16 @@ const db = require('./db');
 
 // Routes
 const subscriptionRoutesFixed = require('./routes/subscriptionRoutes-fixed');
-// const subscriptionRoutesUpdated = require('./routes/subscriptionRoutes-updated'); // Commented out due to Sequelize dependency issues
-const apiRoutes = require('./routes/apiRoutes-complete'); // Updated to use complete API routes with pause/resume
+const apiRoutes = require('./routes/apiRoutes-complete');
 const optimizedRoutes = require('./routes/optimizedRoutes');
 const enhancedSubscriptionRoutes = require('./routes/enhancedSubscriptionRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const razorpayConfigRoutes = require('./routes/razorpay-config');
 const verifyPaymentRoutes = require('./routes/verify-payment-enhanced');
+
+// ✅ SINGLE ORDER ROUTE (ADDED)
+const singleOrderRoutes = require('./routes/singleOrderRoutes');
 
 const { authenticateToken } = require('./middleware/auth');
 
@@ -116,7 +115,6 @@ app.use(async (req, res, next) => {
 });
 
 // -------------------- Authentication --------------------
-// Register
 app.post('/api/users', async (req, res) => {
   try {
     const { username, password, name, phone, email } = req.body;
@@ -124,7 +122,6 @@ app.post('/api/users', async (req, res) => {
       return res.status(400).json({ error: 'Username, password, and email are required' });
     }
 
-    // Check if user already exists
     const existing = await db.query(
       'SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1',
       [username, email]
@@ -141,45 +138,26 @@ app.post('/api/users', async (req, res) => {
 
     res.status(201).json({ message: 'User registered successfully' });
   } catch (error) {
-    console.error('Register error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Login
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ success: false, error: 'Username and password required' });
-    }
 
-    const query = 'SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1';
-    const result = await db.query(query, [username, username]);
+    const result = await db.query(
+      'SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1',
+      [username, username]
+    );
 
-    let user;
-    if (Array.isArray(result) && Array.isArray(result[0])) {
-      user = result[0][0];
-    } else if (Array.isArray(result)) {
-      user = result[0];
-    }
-
-    if (!user) {
-      return res.status(401).json({ success: false, error: 'Invalid credentials' });
-    }
-
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) {
+    const user = Array.isArray(result[0]) ? result[0][0] : result[0];
+    if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
     const token = jwt.sign(
-      {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role || 'user'
-      },
+      { id: user.id, email: user.email, role: user.role || 'user' },
       SECRET_KEY,
       { expiresIn: '24h' }
     );
@@ -190,16 +168,14 @@ app.post('/api/login', async (req, res) => {
       userName: user.name || user.username,
       userEmail: user.email
     });
-  } catch (error) {
-    console.error('Login error:', error);
+  } catch {
     res.status(500).json({ success: false, error: 'Internal server error' });
   }
 });
 
 // -------------------- API Routes --------------------
 app.use('/api/subscriptions', subscriptionRoutesFixed);
-// app.use('/api/subscriptions/v2', authenticateToken, subscriptionRoutesUpdated); // Commented out due to Sequelize dependency issues - subscriptionRoutesUpdated is not defined
-app.use('/api', apiRoutes); // Using complete API routes with pause/resume functionality
+app.use('/api', apiRoutes);
 app.use('/api/optimized', optimizedRoutes);
 app.use('/api/enhanced-subscriptions', enhancedSubscriptionRoutes);
 app.use('/api/analytics', analyticsRoutes);
@@ -207,79 +183,35 @@ app.use('/api/admin', adminRoutes);
 app.use('/api', razorpayConfigRoutes);
 app.use('/api', verifyPaymentRoutes);
 
+// ✅ SINGLE ORDER ROUTES (ADDED)
+app.use('/api', singleOrderRoutes);
+
 // -------------------- Health Check --------------------
 app.get('/health', async (req, res) => {
-  try {
-    const dbHealth = await db.query('SELECT 1 AS health');
-    let isConnected = false;
-
-    if (Array.isArray(dbHealth)) {
-      if (Array.isArray(dbHealth[0])) {
-        isConnected = dbHealth[0][0]?.health === 1;
-      } else {
-        isConnected = dbHealth[0]?.health === 1;
-      }
-    }
-
-    res.json({
-      status: 'healthy',
-      database: isConnected ? 'connected' : 'disconnected',
-      timestamp: new Date()
-    });
-  } catch (error) {
-    res.status(503).json({ status: 'unhealthy', error: error.message });
-  }
+  res.json({ status: 'healthy', timestamp: new Date() });
 });
 
 // -------------------- Static Files --------------------
 app.use(express.static(path.join(__dirname, '../frontend/public'), { maxAge: '1d' }));
 
 // -------------------- Frontend Routes --------------------
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public/index.html'));
-});
-app.get('/login', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public/login.html'));
-});
-app.get('/register', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public/register.html'));
-});
-app.get('/profile', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public/profile.html'));
-});
-app.get('/admin-login', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public/admin-login.html'));
-});
-app.get('/admin-fixed', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public/admin-fixed.html'));
-});
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, '../frontend/public/index.html')));
+app.get('/login', (req, res) => res.sendFile(path.join(__dirname, '../frontend/public/login.html')));
+app.get('/register', (req, res) => res.sendFile(path.join(__dirname, '../frontend/public/register.html')));
+app.get('/profile', (req, res) => res.sendFile(path.join(__dirname, '../frontend/public/profile.html')));
+app.get('/admin-login', (req, res) => res.sendFile(path.join(__dirname, '../frontend/public/admin-login.html')));
+app.get('/admin-fixed', (req, res) => res.sendFile(path.join(__dirname, '../frontend/public/admin-fixed.html')));
 
-// -------------------- 404 Handlers (moved to end) --------------------
-app.use('/api/*', (req, res) => {
-  res.status(404).json({ error: 'API route not found' });
-});
-
-// Handle non-API routes (frontend routes)
-app.use('*', (req, res, next) => {
-  // Skip API routes - let them fall through to 404
-  if (req.path.startsWith('/api/')) {
-    return next();
-  }
-  res.sendFile(path.join(__dirname, '../frontend/public/home.html'));
-});
+// -------------------- 404 --------------------
+app.use('/api/*', (req, res) => res.status(404).json({ error: 'API route not found' }));
+app.use('*', (req, res) =>
+  res.sendFile(path.join(__dirname, '../frontend/public/home.html'))
+);
 
 // -------------------- Start Server --------------------
 async function startServer() {
-  try {
-    await databaseValidator.validateSchema();
-    const server = app.listen(PORT, () => {
-      logger.info(`🚀 Server running on port ${PORT}`);
-    });
-    server.timeout = 30000;
-  } catch (error) {
-    logger.error('Failed to start server:', error);
-    process.exit(1);
-  }
+  await databaseValidator.validateSchema();
+  app.listen(PORT, () => logger.info(`🚀 Server running on ${PORT}`));
 }
 
 startServer();
