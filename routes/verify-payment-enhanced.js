@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const Razorpay = require('razorpay');
 const db = require('../db');
 
-// ✅ TELEGRAM ALERT UTILITY
+// ✅ TELEGRAM ALERT
 const { sendTelegramAlert } = require('../utils/telegram');
 
 // Razorpay credentials
@@ -17,11 +17,11 @@ const razorpay = new Razorpay({
   key_secret: credentials.key_secret
 });
 
-// Helper to format date for MySQL
+// Helper: format date for MySQL
 const formatDateForMySQL = (date) =>
   date.toISOString().slice(0, 19).replace('T', ' ');
 
-// Subscription price helper
+// Subscription pricing
 function calculateAmount(type, duration) {
   const prices = {
     '500ml': { '6days': 300, '15days': 750 },
@@ -30,7 +30,9 @@ function calculateAmount(type, duration) {
   return prices[type]?.[duration] || 0;
 }
 
-/* ===================== CREATE ORDER ===================== */
+/* =====================================================
+   CREATE RAZORPAY ORDER
+===================================================== */
 router.post('/create-order', async (req, res) => {
   try {
     const { amount, subscription_type, duration, username } = req.body;
@@ -58,12 +60,14 @@ router.post('/create-order', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Create order error:', error);
+    console.error('❌ CREATE ORDER ERROR:', error);
     res.status(500).json({ success: false });
   }
 });
 
-/* ===================== VERIFY PAYMENT ===================== */
+/* =====================================================
+   VERIFY PAYMENT
+===================================================== */
 router.post('/verify-payment', async (req, res) => {
   try {
     const {
@@ -76,11 +80,10 @@ router.post('/verify-payment', async (req, res) => {
       building_name,
       flat_number,
       landmark,
-      latitude,
-      longitude,
       username
     } = req.body;
 
+    // ---------- BASIC VALIDATION ----------
     if (
       !razorpay_order_id ||
       !razorpay_payment_id ||
@@ -91,7 +94,7 @@ router.post('/verify-payment', async (req, res) => {
       return res.status(400).json({ success: false });
     }
 
-    /* ---------- VERIFY SIGNATURE ---------- */
+    // ---------- VERIFY SIGNATURE ----------
     const body = razorpay_order_id + '|' + razorpay_payment_id;
     const expectedSignature = crypto
       .createHmac('sha256', credentials.key_secret)
@@ -102,13 +105,13 @@ router.post('/verify-payment', async (req, res) => {
       return res.status(400).json({ success: false });
     }
 
-    /* ---------- VERIFY PAYMENT ---------- */
+    // ---------- VERIFY PAYMENT ----------
     const payment = await razorpay.payments.fetch(razorpay_payment_id);
     if (!['authorized', 'captured'].includes(payment.status)) {
       return res.status(400).json({ success: false });
     }
 
-    /* ---------- FETCH USER ---------- */
+    // ---------- FETCH USER ----------
     const [users] = await db.execute(
       `SELECT id, name, email, phone FROM users WHERE LOWER(email)=LOWER(?)`,
       [username]
@@ -123,7 +126,7 @@ router.post('/verify-payment', async (req, res) => {
       address || [building_name, flat_number, landmark].filter(Boolean).join(', ');
 
     /* =====================================================
-       🥛 SINGLE ORDER → TOMORROW MORNING DELIVERY
+       🥛 SINGLE ORDER (DELIVER TOMORROW MORNING)
     ===================================================== */
     if (subscription_type === 'single_order') {
 
@@ -136,30 +139,32 @@ router.post('/verify-payment', async (req, res) => {
           order_type,
           order_status,
           address,
-          latitude,
-          longitude,
-          delivery_date,
           created_at
-        ) VALUES (?, ?, ?, ?, 'single', 'paid', ?, ?, ?, DATE_ADD(CURDATE(), INTERVAL 1 DAY), NOW())`,
+        ) VALUES (?, ?, ?, ?, 'single', 'paid', ?, NOW())`,
         [
           user.id,
           user.email,
           payment.amount / 100,
           razorpay_payment_id,
-          fullAddress,
-          latitude || null,
-          longitude || null
+          fullAddress
         ]
       );
 
+      console.log('✅ SINGLE ORDER INSERTED INTO orders TABLE');
+
       // 🔔 TELEGRAM ALERT
-      await sendTelegramAlert(
-        `🥛 <b>NEW SINGLE ORDER</b>\n\n` +
-        `👤 ${user.name}\n📞 ${user.phone}\n` +
-        `💰 ₹${payment.amount / 100}\n` +
-        `🚚 Delivery: Tomorrow Morning\n\n` +
-        `📍 ${fullAddress}`
-      );
+      try {
+        await sendTelegramAlert(
+          `🥛 <b>NEW SINGLE ORDER</b>\n\n` +
+          `👤 ${user.name}\n` +
+          `📞 ${user.phone}\n\n` +
+          `💰 ₹${payment.amount / 100}\n` +
+          `🚚 Delivery: Tomorrow Morning\n\n` +
+          `📍 ${fullAddress}`
+        );
+      } catch (tgErr) {
+        console.error('Telegram failed:', tgErr.message);
+      }
 
       return res.json({
         success: true,
@@ -168,7 +173,7 @@ router.post('/verify-payment', async (req, res) => {
     }
 
     /* =====================================================
-       🔁 SUBSCRIPTION FLOW (UNCHANGED)
+       🔁 SUBSCRIPTION FLOW (USERS TABLE)
     ===================================================== */
     const amount = calculateAmount(subscription_type, duration);
 
@@ -202,30 +207,47 @@ router.post('/verify-payment', async (req, res) => {
       ]
     );
 
-    await sendTelegramAlert(
-      `📦 <b>NEW SUBSCRIPTION</b>\n\n👤 ${user.name}\n💰 ₹${amount}`
-    );
+    // 🔔 TELEGRAM ALERT
+    try {
+      await sendTelegramAlert(
+        `📦 <b>NEW SUBSCRIPTION</b>\n\n` +
+        `👤 ${user.name}\n` +
+        `🍼 ${subscription_type}\n` +
+        `⏳ ${duration}\n` +
+        `💰 ₹${amount}\n\n` +
+        `📍 ${fullAddress}`
+      );
+    } catch (tgErr) {
+      console.error('Telegram failed:', tgErr.message);
+    }
 
     res.json({ success: true });
 
   } catch (error) {
-    console.error('VERIFY PAYMENT ERROR:', error);
+    console.error('❌ VERIFY PAYMENT ERROR:', error);
     res.status(500).json({ success: false });
   }
 });
 
-/* ===================== PAYMENT STATUS ===================== */
+/* =====================================================
+   CHECK PAYMENT STATUS (ORDERS TABLE)
+===================================================== */
 router.get('/verify-payment/status/:payment_id', async (req, res) => {
-  const [rows] = await db.execute(
-    `SELECT * FROM orders WHERE payment_id = ?`,
-    [req.params.payment_id]
-  );
+  try {
+    const [rows] = await db.execute(
+      `SELECT * FROM orders WHERE payment_id = ?`,
+      [req.params.payment_id]
+    );
 
-  if (!rows.length) {
-    return res.status(404).json({ success: false });
+    if (!rows.length) {
+      return res.status(404).json({ success: false });
+    }
+
+    res.json({ success: true, order: rows[0] });
+
+  } catch (error) {
+    res.status(500).json({ success: false });
   }
-
-  res.json({ success: true, order: rows[0] });
 });
 
 module.exports = router;
