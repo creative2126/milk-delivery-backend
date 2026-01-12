@@ -34,6 +34,7 @@ router.post('/create-order', async (req, res) => {
     const { amount, subscription_type, duration, username } = req.body;
 
     if (!amount || !subscription_type || !username) {
+      console.error('❌ Missing required fields');
       return res.status(400).json({
         success: false,
         message: 'Missing required fields'
@@ -59,7 +60,10 @@ router.post('/create-order', async (req, res) => {
 
   } catch (err) {
     console.error('❌ CREATE ORDER ERROR:', err);
-    res.status(500).json({ success: false });
+    res.status(500).json({ 
+      success: false,
+      error: err.message 
+    });
   }
 });
 
@@ -68,7 +72,7 @@ router.post('/create-order', async (req, res) => {
 ========================================================= */
 router.post('/verify-payment', async (req, res) => {
   console.log('🟢 VERIFY PAYMENT HIT');
-  console.log('🟡 PAYLOAD:', req.body);
+  console.log('🟡 FULL PAYLOAD:', JSON.stringify(req.body, null, 2));
 
   try {
     const {
@@ -76,128 +80,284 @@ router.post('/verify-payment', async (req, res) => {
       razorpay_payment_id,
       razorpay_signature,
       subscription_type,
+      duration,
       username,
       address,
+      building_name,
+      flat_number,
+      landmark,
       latitude,
       longitude
     } = req.body;
 
-    if (
-      !razorpay_order_id ||
-      !razorpay_payment_id ||
-      !razorpay_signature ||
-      !subscription_type ||
-      !username
-    ) {
-      return res.status(400).json({ success: false });
+    /* ---------- VALIDATION ---------- */
+    console.log('🔍 Step 1: Validating required fields...');
+    
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      console.error('❌ Missing Razorpay fields');
+      console.error('Order ID:', razorpay_order_id);
+      console.error('Payment ID:', razorpay_payment_id);
+      console.error('Signature:', razorpay_signature);
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Missing payment details' 
+      });
     }
+
+    if (!subscription_type || !username) {
+      console.error('❌ Missing subscription_type or username');
+      console.error('Subscription Type:', subscription_type);
+      console.error('Username:', username);
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Missing order details' 
+      });
+    }
+
+    console.log('✅ All required fields present');
 
     /* ---------- SIGNATURE CHECK ---------- */
+    console.log('🔐 Step 2: Verifying signature...');
+    console.log('Order ID:', razorpay_order_id);
+    console.log('Payment ID:', razorpay_payment_id);
+    console.log('Received Signature:', razorpay_signature);
+    console.log('Using Key Secret:', credentials.key_secret.substring(0, 10) + '...');
+    
+    const text = `${razorpay_order_id}|${razorpay_payment_id}`;
+    console.log('Text to sign:', text);
+    
     const expectedSignature = crypto
       .createHmac('sha256', credentials.key_secret)
-      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .update(text)
       .digest('hex');
 
+    console.log('Expected Signature:', expectedSignature);
+    console.log('Signatures Match:', expectedSignature === razorpay_signature);
+
     if (expectedSignature !== razorpay_signature) {
-      console.error('❌ Signature mismatch');
-      return res.status(400).json({ success: false });
+      console.error('❌ SIGNATURE MISMATCH!');
+      console.error('Expected:', expectedSignature);
+      console.error('Received:', razorpay_signature);
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid signature - payment verification failed' 
+      });
     }
 
-    /* ---------- PAYMENT STATUS ---------- */
-    const payment = await razorpay.payments.fetch(razorpay_payment_id);
+    console.log('✅ Signature verified successfully');
+
+    /* ---------- PAYMENT STATUS CHECK ---------- */
+    console.log('💳 Step 3: Fetching payment status from Razorpay...');
+    
+    let payment;
+    try {
+      payment = await razorpay.payments.fetch(razorpay_payment_id);
+      console.log('Payment Status:', payment.status);
+      console.log('Payment Amount:', payment.amount / 100);
+      console.log('Payment Method:', payment.method);
+    } catch (err) {
+      console.error('❌ Failed to fetch payment from Razorpay:', err.message);
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Could not verify payment with Razorpay' 
+      });
+    }
+
     if (!['authorized', 'captured'].includes(payment.status)) {
-      return res.status(400).json({ success: false });
+      console.error('❌ Payment not completed. Status:', payment.status);
+      return res.status(400).json({ 
+        success: false, 
+        error: `Payment not completed. Status: ${payment.status}` 
+      });
     }
 
-    /* ---------- USER ---------- */
-    const [users] = await db.execute(
-      'SELECT id, email, name, phone FROM users WHERE LOWER(email)=LOWER(?)',
-      [username]
-    );
+    console.log('✅ Payment status valid:', payment.status);
 
-    if (!users.length) {
-      console.error('❌ User not found');
-      return res.status(400).json({ success: false });
+    /* ---------- USER LOOKUP ---------- */
+    console.log('👤 Step 4: Looking up user:', username);
+    
+    let users;
+    try {
+      [users] = await db.execute(
+        'SELECT id, email, name, phone FROM users WHERE LOWER(email)=LOWER(?)',
+        [username]
+      );
+    } catch (err) {
+      console.error('❌ Database error during user lookup:', err.message);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Database error' 
+      });
+    }
+
+    if (!users || users.length === 0) {
+      console.error('❌ User not found in database');
+      console.error('Searched for email:', username);
+      return res.status(400).json({ 
+        success: false, 
+        error: 'User not found. Please register first.' 
+      });
     }
 
     const user = users[0];
+    console.log('✅ User found:');
+    console.log('  - ID:', user.id);
+    console.log('  - Email:', user.email);
+    console.log('  - Name:', user.name);
+    console.log('  - Phone:', user.phone);
 
     /* =====================================================
        SINGLE ORDER → TOMORROW MORNING DELIVERY
     ===================================================== */
     if (subscription_type === 'single_order') {
+      console.log('📦 Step 5: Processing single order...');
+      console.log('Address:', address || 'Not provided');
+      console.log('Building:', building_name || 'Not provided');
+      console.log('Flat:', flat_number || 'Not provided');
+      console.log('Landmark:', landmark || 'Not provided');
+      console.log('Coordinates:', latitude && longitude ? `${latitude}, ${longitude}` : 'Not provided');
 
-      await db.execute(
-        `INSERT INTO orders (
-          user_id,
-          user_email,
-          order_type,
-          total_amount,
-          order_status,
-          delivery_date,
-          delivery_slot,
-          address,
-          latitude,
-          longitude,
-          payment_id
-        ) VALUES (?, ?, 'single', ?, 'paid',
-          DATE_ADD(CURDATE(), INTERVAL 1 DAY),
-          'morning', ?, ?, ?, ?)`
-        ,
-        [
-          user.id,
-          user.email,
-          payment.amount / 100,
-          address || '',
-          latitude || null,
-          longitude || null,
-          razorpay_payment_id
-        ]
-      );
-
-      console.log('✅ ORDER INSERTED INTO DB');
-
-      // 🔔 Telegram (non-blocking)
       try {
+        const [result] = await db.execute(
+          `INSERT INTO orders (
+            user_id,
+            user_email,
+            order_type,
+            total_amount,
+            order_status,
+            delivery_date,
+            delivery_slot,
+            address,
+            latitude,
+            longitude,
+            payment_id
+          ) VALUES (?, ?, 'single', ?, 'paid',
+            DATE_ADD(CURDATE(), INTERVAL 1 DAY),
+            'morning', ?, ?, ?, ?)`,
+          [
+            user.id,
+            user.email,
+            payment.amount / 100,
+            address || '',
+            latitude || null,
+            longitude || null,
+            razorpay_payment_id
+          ]
+        );
+
+        console.log('✅ ORDER INSERTED INTO DB');
+        console.log('Order ID:', result.insertId);
+
+      } catch (err) {
+        console.error('❌ Database error during order insertion:', err.message);
+        console.error('SQL Error:', err.sqlMessage);
+        return res.status(500).json({ 
+          success: false, 
+          error: 'Failed to save order to database' 
+        });
+      }
+
+      // 🔔 Telegram notification (non-blocking)
+      try {
+        const fullAddress = [
+          flat_number && `Flat: ${flat_number}`,
+          building_name && `Building: ${building_name}`,
+          address,
+          landmark && `Landmark: ${landmark}`
+        ].filter(Boolean).join('\n');
+
         await sendTelegramAlert(
           `🥛 <b>NEW SINGLE ORDER</b>\n\n` +
-          `👤 ${user.name}\n📞 ${user.phone}\n` +
+          `👤 ${user.name || 'N/A'}\n` +
+          `📞 ${user.phone || 'N/A'}\n` +
+          `📧 ${user.email}\n` +
           `💰 ₹${payment.amount / 100}\n` +
           `🚚 Delivery: Tomorrow Morning\n\n` +
-          `📍 ${address}`
+          `📍 <b>Address:</b>\n${fullAddress || 'Not provided'}\n\n` +
+          `💳 Payment ID: ${razorpay_payment_id}`
         );
+        console.log('✅ Telegram notification sent');
       } catch (e) {
-        console.error('Telegram failed');
+        console.error('⚠️ Telegram notification failed (non-critical):', e.message);
       }
+
+      console.log('🎉 Single order processed successfully');
 
       return res.json({
         success: true,
-        message: 'Single order placed successfully'
+        message: 'Single order placed successfully',
+        order_details: {
+          user_email: user.email,
+          amount: payment.amount / 100,
+          delivery: 'Tomorrow Morning',
+          payment_id: razorpay_payment_id
+        }
       });
     }
 
-    return res.status(400).json({ success: false });
+    /* =====================================================
+       SUBSCRIPTION ORDERS (if you add this later)
+    ===================================================== */
+    console.error('❌ Invalid subscription_type:', subscription_type);
+    return res.status(400).json({ 
+      success: false, 
+      error: `Invalid subscription type: ${subscription_type}` 
+    });
 
   } catch (err) {
-    console.error('❌ VERIFY PAYMENT ERROR:', err);
-    res.status(500).json({ success: false });
+    console.error('❌ VERIFY PAYMENT UNEXPECTED ERROR:', err);
+    console.error('Error stack:', err.stack);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error during payment verification' 
+    });
   }
 });
 
 /* =========================================================
-   PAYMENT STATUS CHECK
+   PAYMENT STATUS CHECK → /api/verify-payment/status/:payment_id
 ========================================================= */
 router.get('/verify-payment/status/:payment_id', async (req, res) => {
-  const [rows] = await db.execute(
-    'SELECT * FROM orders WHERE payment_id = ?',
-    [req.params.payment_id]
-  );
+  console.log('🔍 Checking payment status for:', req.params.payment_id);
 
-  if (!rows.length) {
-    return res.status(404).json({ success: false });
+  try {
+    const [rows] = await db.execute(
+      'SELECT * FROM orders WHERE payment_id = ?',
+      [req.params.payment_id]
+    );
+
+    if (!rows || rows.length === 0) {
+      console.log('❌ No order found for payment ID:', req.params.payment_id);
+      return res.status(404).json({ 
+        success: false,
+        error: 'Order not found' 
+      });
+    }
+
+    console.log('✅ Order found:', rows[0].id);
+    res.json({ 
+      success: true, 
+      order: rows[0] 
+    });
+
+  } catch (err) {
+    console.error('❌ Database error:', err.message);
+    res.status(500).json({ 
+      success: false,
+      error: 'Database error' 
+    });
   }
+});
 
-  res.json({ success: true, order: rows[0] });
+/* =========================================================
+   HEALTH CHECK
+========================================================= */
+router.get('/health', (req, res) => {
+  res.json({ 
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    razorpay_configured: !!(credentials.key_id && credentials.key_secret)
+  });
 });
 
 module.exports = router;
