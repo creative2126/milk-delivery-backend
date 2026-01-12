@@ -35,21 +35,19 @@ router.post('/create-order', async (req, res) => {
   try {
     const { amount, subscription_type, duration, username } = req.body;
 
-    if (!amount || !subscription_type || !duration || !username) {
+    if (!amount || !subscription_type || !username) {
       return res.status(400).json({
         success: false,
         message: 'Missing required order fields'
       });
     }
 
-    const options = {
+    const order = await razorpay.orders.create({
       amount: Math.round(parseFloat(amount) * 100),
       currency: 'INR',
       receipt: `receipt_${Date.now()}`,
       notes: { subscription_type, duration, username }
-    };
-
-    const order = await razorpay.orders.create(options);
+    });
 
     res.json({
       success: true,
@@ -61,10 +59,7 @@ router.post('/create-order', async (req, res) => {
 
   } catch (error) {
     console.error('Create order error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create order'
-    });
+    res.status(500).json({ success: false });
   }
 });
 
@@ -86,7 +81,6 @@ router.post('/verify-payment', async (req, res) => {
       username
     } = req.body;
 
-    /* ---------- BASIC VALIDATION ---------- */
     if (
       !razorpay_order_id ||
       !razorpay_payment_id ||
@@ -94,13 +88,10 @@ router.post('/verify-payment', async (req, res) => {
       !subscription_type ||
       !username
     ) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required fields'
-      });
+      return res.status(400).json({ success: false });
     }
 
-    /* ---------- SIGNATURE VERIFICATION ---------- */
+    /* ---------- VERIFY SIGNATURE ---------- */
     const body = razorpay_order_id + '|' + razorpay_payment_id;
     const expectedSignature = crypto
       .createHmac('sha256', credentials.key_secret)
@@ -108,48 +99,38 @@ router.post('/verify-payment', async (req, res) => {
       .digest('hex');
 
     if (expectedSignature !== razorpay_signature) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid payment signature'
-      });
+      return res.status(400).json({ success: false });
     }
 
-    /* ---------- VERIFY PAYMENT STATUS ---------- */
+    /* ---------- VERIFY PAYMENT ---------- */
     const payment = await razorpay.payments.fetch(razorpay_payment_id);
     if (!['authorized', 'captured'].includes(payment.status)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Payment not completed'
-      });
+      return res.status(400).json({ success: false });
     }
 
     /* ---------- FETCH USER ---------- */
     const [users] = await db.execute(
-      `SELECT id, name, email, phone FROM users WHERE LOWER(email) = LOWER(?)`,
+      `SELECT id, name, email, phone FROM users WHERE LOWER(email)=LOWER(?)`,
       [username]
     );
 
-    if (!users || users.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'User not found'
-      });
+    if (!users.length) {
+      return res.status(400).json({ success: false });
     }
 
     const user = users[0];
-
     const fullAddress =
       address || [building_name, flat_number, landmark].filter(Boolean).join(', ');
 
     /* =====================================================
-       🥛 SINGLE ORDER FLOW (NEXT DAY DELIVERY)
+       🥛 SINGLE ORDER → TOMORROW MORNING DELIVERY
     ===================================================== */
     if (subscription_type === 'single_order') {
 
       await db.execute(
         `INSERT INTO orders (
           user_id,
-          user_email,
+          email,
           total_amount,
           payment_id,
           order_type,
@@ -171,18 +152,14 @@ router.post('/verify-payment', async (req, res) => {
         ]
       );
 
-      // 🔔 TELEGRAM ALERT (SINGLE ORDER)
-      try {
-        await sendTelegramAlert(
-          `🥛 <b>NEW SINGLE ORDER</b>\n\n` +
-          `👤 ${user.name}\n📞 ${user.phone}\n\n` +
-          `💰 ₹${payment.amount / 100}\n` +
-          `🚚 Delivery: Tomorrow Morning\n\n` +
-          `📍 ${fullAddress}`
-        );
-      } catch (err) {
-        console.error('Telegram error:', err.message);
-      }
+      // 🔔 TELEGRAM ALERT
+      await sendTelegramAlert(
+        `🥛 <b>NEW SINGLE ORDER</b>\n\n` +
+        `👤 ${user.name}\n📞 ${user.phone}\n` +
+        `💰 ₹${payment.amount / 100}\n` +
+        `🚚 Delivery: Tomorrow Morning\n\n` +
+        `📍 ${fullAddress}`
+      );
 
       return res.json({
         success: true,
@@ -196,26 +173,22 @@ router.post('/verify-payment', async (req, res) => {
     const amount = calculateAmount(subscription_type, duration);
 
     const startDate = new Date();
-    const daysToAdd = duration === '6days' ? 7 : 17;
     const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + daysToAdd);
+    endDate.setDate(endDate.getDate() + (duration === '6days' ? 7 : 17));
 
     await db.execute(
       `UPDATE users SET
-        subscription_type = ?,
-        subscription_duration = ?,
-        subscription_status = 'active',
-        subscription_start_date = ?,
-        subscription_end_date = ?,
-        subscription_amount = ?,
-        subscription_total_amount = ?,
-        subscription_address = ?,
-        subscription_building_name = ?,
-        subscription_flat_number = ?,
-        subscription_payment_id = ?,
-        subscription_created_at = NOW(),
-        subscription_updated_at = NOW()
-      WHERE LOWER(email) = LOWER(?)`,
+        subscription_type=?,
+        subscription_duration=?,
+        subscription_status='active',
+        subscription_start_date=?,
+        subscription_end_date=?,
+        subscription_amount=?,
+        subscription_total_amount=?,
+        subscription_address=?,
+        subscription_payment_id=?,
+        subscription_updated_at=NOW()
+      WHERE LOWER(email)=LOWER(?)`,
       [
         subscription_type,
         duration,
@@ -224,67 +197,35 @@ router.post('/verify-payment', async (req, res) => {
         amount,
         amount,
         fullAddress,
-        building_name || '',
-        flat_number || '',
         razorpay_payment_id,
         username
       ]
     );
 
-    // 🔔 TELEGRAM ALERT (SUBSCRIPTION)
-    try {
-      await sendTelegramAlert(
-        `📦 <b>NEW SUBSCRIPTION</b>\n\n` +
-        `👤 ${user.name}\n📞 ${user.phone}\n\n` +
-        `🍼 ${subscription_type}\n⏳ ${duration}\n💰 ₹${amount}\n\n` +
-        `📍 ${fullAddress}`
-      );
-    } catch (err) {
-      console.error('Telegram error:', err.message);
-    }
+    await sendTelegramAlert(
+      `📦 <b>NEW SUBSCRIPTION</b>\n\n👤 ${user.name}\n💰 ₹${amount}`
+    );
 
-    res.json({
-      success: true,
-      message: 'Subscription activated successfully'
-    });
+    res.json({ success: true });
 
   } catch (error) {
     console.error('VERIFY PAYMENT ERROR:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Payment verification failed'
-    });
+    res.status(500).json({ success: false });
   }
 });
 
 /* ===================== PAYMENT STATUS ===================== */
 router.get('/verify-payment/status/:payment_id', async (req, res) => {
-  try {
-    const { payment_id } = req.params;
+  const [rows] = await db.execute(
+    `SELECT * FROM orders WHERE payment_id = ?`,
+    [req.params.payment_id]
+  );
 
-    const [rows] = await db.execute(
-      `SELECT * FROM orders WHERE payment_id = ?`,
-      [payment_id]
-    );
-
-    if (!rows || rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Payment not found'
-      });
-    }
-
-    res.json({
-      success: true,
-      order: rows[0]
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to check payment status'
-    });
+  if (!rows.length) {
+    return res.status(404).json({ success: false });
   }
+
+  res.json({ success: true, order: rows[0] });
 });
 
 module.exports = router;
