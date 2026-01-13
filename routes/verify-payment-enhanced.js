@@ -267,7 +267,10 @@ router.post('/verify-payment', async (req, res) => {
 
       try {
         // ✅ FIX: Use extracted userId instead of user.id
-        const [result] = await db.execute(
+        console.log('💾 Attempting to insert order into database...');
+        console.log('User ID to use:', userId);
+        
+        const insertResult = await db.execute(
           `INSERT INTO orders (
             user_id,
             user_email,
@@ -294,17 +297,33 @@ router.post('/verify-payment', async (req, res) => {
           ]
         );
 
+        console.log('📊 DEBUG - Insert result type:', typeof insertResult);
+        console.log('📊 DEBUG - Insert result is array:', Array.isArray(insertResult));
+        console.log('📊 DEBUG - Insert result:', insertResult);
+        
+        // Handle different return formats
+        let insertId;
+        if (Array.isArray(insertResult) && insertResult[0]) {
+          insertId = insertResult[0].insertId;
+        } else if (insertResult.insertId) {
+          insertId = insertResult.insertId;
+        } else {
+          console.log('⚠️ Could not extract insertId, but insert likely succeeded');
+          insertId = 'unknown';
+        }
+
         console.log('✅ ORDER INSERTED INTO DB');
-        console.log('Order ID:', result.insertId);
+        console.log('Order ID:', insertId);
 
       } catch (err) {
         console.error('❌ Database error during order insertion:', err.message);
         console.error('SQL Error:', err.sqlMessage || err.sql);
         console.error('Error Code:', err.code);
+        console.error('Full error:', err);
         return res.status(500).json({ 
           success: false, 
           error: 'Failed to save order to database',
-          details: err.sqlMessage || err.message
+          details: err.message
         });
       }
 
