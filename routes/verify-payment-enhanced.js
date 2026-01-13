@@ -178,33 +178,64 @@ router.post('/verify-payment', async (req, res) => {
     
     let users;
     try {
-      [users] = await db.execute(
+      const dbResult = await db.execute(
         'SELECT id, email, name, phone FROM users WHERE LOWER(email)=LOWER(?)',
         [username]
       );
+      
+      console.log('📊 DEBUG - DB Result type:', typeof dbResult);
+      console.log('📊 DEBUG - DB Result is array:', Array.isArray(dbResult));
+      console.log('📊 DEBUG - DB Result length:', dbResult?.length);
+      
+      // Handle different db.execute return formats
+      if (Array.isArray(dbResult) && dbResult.length > 0) {
+        users = Array.isArray(dbResult[0]) ? dbResult[0] : dbResult;
+      } else {
+        users = [];
+      }
+      
+      console.log('📊 DEBUG - Extracted users:', users);
+      console.log('📊 DEBUG - Users count:', users?.length);
+      
     } catch (err) {
       console.error('❌ Database error during user lookup:', err.message);
+      console.error('Error details:', err);
       return res.status(500).json({ 
         success: false, 
-        error: 'Database error' 
+        error: 'Database error during user lookup',
+        details: err.message
       });
     }
 
-    if (!users || users.length === 0) {
+    if (!users || !Array.isArray(users) || users.length === 0) {
       console.error('❌ User not found in database');
       console.error('Searched for email:', username);
+      console.error('Users result:', users);
       return res.status(400).json({ 
         success: false, 
         error: 'User not found. Please register first.' 
       });
     }
 
+    // ✅ FIX: Safely handle user object
     const user = users[0];
+    
+    if (!user || typeof user !== 'object') {
+      console.error('❌ Invalid user object received:', user);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Invalid user data from database' 
+      });
+    }
     
     // ✅ FIX: Debug user object structure
     console.log('✅ User found:');
-    console.log('📊 DEBUG - Full user object:', JSON.stringify(user, null, 2));
-    console.log('📊 DEBUG - User keys:', Object.keys(user));
+    try {
+      console.log('📊 DEBUG - Full user object:', JSON.stringify(user, null, 2));
+      console.log('📊 DEBUG - User keys:', Object.keys(user));
+    } catch (e) {
+      console.error('❌ Error logging user object:', e.message);
+    }
     
     // ✅ FIX: Handle different ID field names
     const userId = user.id || user.ID || user.user_id || user.USER_ID;
@@ -213,7 +244,7 @@ router.post('/verify-payment', async (req, res) => {
       console.error('❌ Could not extract user ID from user object:', user);
       return res.status(500).json({ 
         success: false, 
-        error: 'Invalid user data structure' 
+        error: 'Invalid user data structure - no ID found' 
       });
     }
     
