@@ -200,11 +200,28 @@ router.post('/verify-payment', async (req, res) => {
     }
 
     const user = users[0];
+    
+    // ✅ FIX: Debug user object structure
     console.log('✅ User found:');
-    console.log('  - ID:', user.id);
-    console.log('  - Email:', user.email);
-    console.log('  - Name:', user.name);
-    console.log('  - Phone:', user.phone);
+    console.log('📊 DEBUG - Full user object:', JSON.stringify(user, null, 2));
+    console.log('📊 DEBUG - User keys:', Object.keys(user));
+    
+    // ✅ FIX: Handle different ID field names
+    const userId = user.id || user.ID || user.user_id || user.USER_ID;
+    
+    if (!userId) {
+      console.error('❌ Could not extract user ID from user object:', user);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Invalid user data structure' 
+      });
+    }
+    
+    console.log('✅ User details:');
+    console.log('  - ID:', userId);
+    console.log('  - Email:', user.email || user.EMAIL);
+    console.log('  - Name:', user.name || user.NAME);
+    console.log('  - Phone:', user.phone || user.PHONE);
 
     /* =====================================================
        SINGLE ORDER → TOMORROW MORNING DELIVERY
@@ -218,6 +235,7 @@ router.post('/verify-payment', async (req, res) => {
       console.log('Coordinates:', latitude && longitude ? `${latitude}, ${longitude}` : 'Not provided');
 
       try {
+        // ✅ FIX: Use extracted userId instead of user.id
         const [result] = await db.execute(
           `INSERT INTO orders (
             user_id,
@@ -235,8 +253,8 @@ router.post('/verify-payment', async (req, res) => {
             DATE_ADD(CURDATE(), INTERVAL 1 DAY),
             'morning', ?, ?, ?, ?)`,
           [
-            user.id,
-            user.email,
+            userId,  // ✅ FIXED: Use extracted userId
+            user.email || user.EMAIL,
             payment.amount / 100,
             address || '',
             latitude || null,
@@ -250,10 +268,12 @@ router.post('/verify-payment', async (req, res) => {
 
       } catch (err) {
         console.error('❌ Database error during order insertion:', err.message);
-        console.error('SQL Error:', err.sqlMessage);
+        console.error('SQL Error:', err.sqlMessage || err.sql);
+        console.error('Error Code:', err.code);
         return res.status(500).json({ 
           success: false, 
-          error: 'Failed to save order to database' 
+          error: 'Failed to save order to database',
+          details: err.sqlMessage || err.message
         });
       }
 
@@ -268,9 +288,9 @@ router.post('/verify-payment', async (req, res) => {
 
         await sendTelegramAlert(
           `🥛 <b>NEW SINGLE ORDER</b>\n\n` +
-          `👤 ${user.name || 'N/A'}\n` +
-          `📞 ${user.phone || 'N/A'}\n` +
-          `📧 ${user.email}\n` +
+          `👤 ${user.name || user.NAME || 'N/A'}\n` +
+          `📞 ${user.phone || user.PHONE || 'N/A'}\n` +
+          `📧 ${user.email || user.EMAIL}\n` +
           `💰 ₹${payment.amount / 100}\n` +
           `🚚 Delivery: Tomorrow Morning\n\n` +
           `📍 <b>Address:</b>\n${fullAddress || 'Not provided'}\n\n` +
@@ -287,7 +307,7 @@ router.post('/verify-payment', async (req, res) => {
         success: true,
         message: 'Single order placed successfully',
         order_details: {
-          user_email: user.email,
+          user_email: user.email || user.EMAIL,
           amount: payment.amount / 100,
           delivery: 'Tomorrow Morning',
           payment_id: razorpay_payment_id
@@ -309,7 +329,8 @@ router.post('/verify-payment', async (req, res) => {
     console.error('Error stack:', err.stack);
     return res.status(500).json({ 
       success: false, 
-      error: 'Internal server error during payment verification' 
+      error: 'Internal server error during payment verification',
+      message: err.message
     });
   }
 });
@@ -334,7 +355,7 @@ router.get('/verify-payment/status/:payment_id', async (req, res) => {
       });
     }
 
-    console.log('✅ Order found:', rows[0].id);
+    console.log('✅ Order found:', rows[0].id || rows[0].ID);
     res.json({ 
       success: true, 
       order: rows[0] 
