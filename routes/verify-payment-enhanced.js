@@ -90,6 +90,11 @@ router.post('/verify-payment', async (req, res) => {
       longitude
     } = req.body;
 
+    // ✅ DEBUG: Log received coordinates
+    console.log('📊 DEBUG - Received from frontend:');
+    console.log('  - latitude:', latitude, '| type:', typeof latitude);
+    console.log('  - longitude:', longitude, '| type:', typeof longitude);
+
     /* ---------- VALIDATION ---------- */
     console.log('🔍 Step 1: Validating required fields...');
     
@@ -280,6 +285,21 @@ router.post('/verify-payment', async (req, res) => {
         console.log('💾 Attempting to insert order into database...');
         console.log('User ID to use:', userId);
         
+        // ✅ DEBUG: Show exact values being inserted
+        const insertValues = [
+          userId,
+          user.email || user.EMAIL,
+          payment.amount / 100,
+          address || '',
+          lat,
+          lng,
+          razorpay_payment_id
+        ];
+        
+        console.log('💾 Values to insert:', JSON.stringify(insertValues, null, 2));
+        console.log('💾 Latitude value:', lat, '| type:', typeof lat, '| isNull:', lat === null);
+        console.log('💾 Longitude value:', lng, '| type:', typeof lng, '| isNull:', lng === null);
+        
         const insertResult = await db.execute(
           `INSERT INTO orders (
             user_id,
@@ -296,15 +316,7 @@ router.post('/verify-payment', async (req, res) => {
           ) VALUES (?, ?, 'single', ?, 'paid',
             DATE_ADD(CURDATE(), INTERVAL 1 DAY),
             'morning', ?, ?, ?, ?)`,
-          [
-            userId,
-            user.email || user.EMAIL,
-            payment.amount / 100,
-            address || '',
-            lat,  // ✅ FIXED: Use parsed latitude
-            lng,  // ✅ FIXED: Use parsed longitude
-            razorpay_payment_id
-          ]
+          insertValues
         );
 
         console.log('📊 DEBUG - Insert result type:', typeof insertResult);
@@ -324,6 +336,24 @@ router.post('/verify-payment', async (req, res) => {
 
         console.log('✅ ORDER INSERTED INTO DB');
         console.log('Order ID:', insertId);
+
+        // ✅ DEBUG: Verify what was actually saved
+        try {
+          const verifyResult = await db.execute(
+            'SELECT latitude, longitude FROM orders WHERE payment_id = ?',
+            [razorpay_payment_id]
+          );
+          
+          const savedOrder = Array.isArray(verifyResult) && Array.isArray(verifyResult[0])
+            ? verifyResult[0][0]
+            : verifyResult[0] || verifyResult;
+          
+          console.log('📊 DEBUG - Verified saved data:');
+          console.log('  - Saved latitude:', savedOrder?.latitude);
+          console.log('  - Saved longitude:', savedOrder?.longitude);
+        } catch (verifyErr) {
+          console.log('⚠️ Could not verify saved coordinates:', verifyErr.message);
+        }
 
       } catch (err) {
         console.error('❌ Database error during order insertion:', err.message);
