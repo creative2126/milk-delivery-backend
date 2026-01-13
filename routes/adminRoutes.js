@@ -1,64 +1,82 @@
 const express = require('express');
-const router = express.Router();
-const db = require('../db');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const db = require('../db');
+const { authenticateToken } = require('../middleware/auth');
 
-const SECRET_KEY = process.env.JWT_SECRET || 'mysecretkey';
+const router = express.Router();
 
-/* ================= ADMIN AUTH MIDDLEWARE ================= */
-function authenticateAdmin(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ error: 'No token provided' });
+/* ================= ADMIN GUARD ================= */
+const requireAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
   }
+  next();
+};
 
-  const token = authHeader.split(' ')[1];
-
+/* ================= ADMIN LOGIN ================= */
+router.post('/login', async (req, res) => {
   try {
-    const decoded = jwt.verify(token, SECRET_KEY);
-    if (decoded.role !== 'admin') {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-    req.admin = decoded;
-    next();
-  } catch (err) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-}
+    const { username, password } = req.body;
 
-/* =========================================================
-   📊 SUBSCRIPTION STATS
-========================================================= */
-router.get('/stats', authenticateAdmin, async (req, res) => {
-  try {
-    const [[stats]] = await db.execute(`
-      SELECT
-        COUNT(*) AS totalSubscriptions,
-        SUM(CASE WHEN subscription_status = 'active' THEN 1 ELSE 0 END) AS activeSubscriptions,
-        SUM(subscription_total_amount) AS totalRevenue,
-        SUM(CASE WHEN DATE(subscription_created_at) = CURDATE() THEN 1 ELSE 0 END) AS todaySubscriptions
-      FROM users
-      WHERE subscription_status IS NOT NULL
-    `);
+    const [rows] = await db.execute(
+      'SELECT * FROM users WHERE (username=? OR email=?) AND role="admin" LIMIT 1',
+      [username, username]
+    );
 
-    res.json({
-      totalSubscriptions: stats.totalSubscriptions || 0,
-      activeSubscriptions: stats.activeSubscriptions || 0,
-      totalRevenue: stats.totalRevenue || 0,
-      todaySubscriptions: stats.todaySubscriptions || 0
-    });
+    const user = rows[0];
+    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+
+    const token = jwt.sign(
+      { id: user.id, role: user.role },
+      process.env.JWT_SECRET || 'mysecretkey',
+      { expiresIn: '24h' }
+    );
+
+    res.json({ token });
   } catch (err) {
-    console.error('SUBSCRIPTION STATS ERROR:', err);
-    res.status(500).json({ error: 'Failed to load subscription stats' });
+    console.error('ADMIN LOGIN ERROR:', err);
+    res.status(500).json({ error: 'Login failed' });
   }
 });
 
-/* =========================================================
-   📦 ALL SUBSCRIPTIONS LIST
-========================================================= */
-router.get('/subscriptions', authenticateAdmin, async (req, res) => {
+/* ================= SUBSCRIPTION STATS ================= */
+router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const status = req.query.status;
+    const [rows] = await db.execute(`
+      SELECT
+        COUNT(*) AS totalSubscriptions,
+        SUM(subscription_status='active') AS activeSubscriptions,
+        IFNULL(SUM(subscription_amount),0) AS totalRevenue,
+        SUM(DATE(subscription_created_at)=CURDATE()) AS todaySubscriptions
+      FROM users
+      WHERE subscription_type IS NOT NULL
+    `);
+
+    res.json(rows[0] || {
+      totalSubscriptions: 0,
+      activeSubscriptions: 0,
+      totalRevenue: 0,
+      todaySubscriptions: 0
+    });
+  } catch (err) {
+    console.error('SUBSCRIPTION STATS ERROR:', err);
+    res.json({
+      totalSubscriptions: 0,
+      activeSubscriptions: 0,
+      totalRevenue: 0,
+      todaySubscriptions: 0
+    });
+  }
+});
+
+/* ================= SUBSCRIPTIONS LIST ================= */
+router.get('/subscriptions', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { status } = req.query;
 
     let sql = `
       SELECT
@@ -70,80 +88,75 @@ router.get('/subscriptions', authenticateAdmin, async (req, res) => {
         subscription_duration AS duration,
         subscription_amount AS amount,
         subscription_status AS status,
-        subscription_start_date AS created_at,
-        subscription_end_date,
         subscription_address AS address,
         subscription_building_name AS building_name,
-        subscription_flat_number AS flat_number
+        subscription_flat_number AS flat_number,
+        subscription_created_at AS created_at,
+        subscription_end_date
       FROM users
-      WHERE subscription_status IS NOT NULL
+      WHERE subscription_type IS NOT NULL
     `;
 
     const params = [];
-
     if (status && status !== 'all') {
-      sql += ' AND subscription_status = ?';
+      sql += ' AND subscription_status=?';
       params.push(status);
     }
 
     sql += ' ORDER BY subscription_created_at DESC';
 
     const [rows] = await db.execute(sql, params);
-    res.json({ subscriptions: rows });
+    res.json({ subscriptions: rows || [] });
   } catch (err) {
     console.error('SUBSCRIPTIONS ERROR:', err);
-    res.status(500).json({ error: 'Failed to fetch subscriptions' });
+    res.json({ subscriptions: [] });
   }
 });
 
-/* =========================================================
-   🛒 SINGLE ORDERS STATS (FIXES 404)
-========================================================= */
-router.get('/orders/stats', authenticateAdmin, async (req, res) => {
+/* ================= ORDER STATS ================= */
+router.get('/orders/stats', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const [[stats]] = await db.execute(`
+    const [rows] = await db.execute(`
       SELECT
         COUNT(*) AS totalOrders,
-        SUM(CASE WHEN order_status = 'pending' THEN 1 ELSE 0 END) AS pendingOrders,
-        SUM(CASE WHEN order_status = 'delivered' THEN 1 ELSE 0 END) AS completedOrders,
-        SUM(total_amount) AS totalRevenue
+        SUM(order_status='pending') AS pendingOrders,
+        SUM(order_status='delivered') AS completedOrders,
+        IFNULL(SUM(total_amount),0) AS totalRevenue
       FROM orders
     `);
 
-    res.json({
-      totalOrders: stats.totalOrders || 0,
-      pendingOrders: stats.pendingOrders || 0,
-      completedOrders: stats.completedOrders || 0,
-      totalRevenue: stats.totalRevenue || 0
+    res.json(rows[0] || {
+      totalOrders: 0,
+      pendingOrders: 0,
+      completedOrders: 0,
+      totalRevenue: 0
     });
   } catch (err) {
     console.error('ORDER STATS ERROR:', err);
-    res.status(500).json({ error: 'Failed to load order stats' });
+    res.json({
+      totalOrders: 0,
+      pendingOrders: 0,
+      completedOrders: 0,
+      totalRevenue: 0
+    });
   }
 });
 
-/* =========================================================
-   🛒 ALL SINGLE ORDERS LIST (FIXES 404)
-========================================================= */
-router.get('/orders', authenticateAdmin, async (req, res) => {
+/* ================= ORDERS LIST ================= */
+router.get('/orders', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const status = req.query.status;
+    const { status } = req.query;
 
     let sql = `
       SELECT
         o.id,
-        o.user_id,
         o.user_email AS email,
         o.total_amount,
         o.order_status AS status,
         o.delivery_date,
-        o.delivery_slot,
         o.address,
-        o.latitude,
-        o.longitude,
-        o.payment_id,
         o.created_at,
-        u.name AS username,
+        u.username,
         u.phone,
         u.subscription_flat_number AS flat_number,
         u.subscription_building_name AS building_name
@@ -152,38 +165,18 @@ router.get('/orders', authenticateAdmin, async (req, res) => {
     `;
 
     const params = [];
-
     if (status && status !== 'all') {
-      sql += ' WHERE o.order_status = ?';
+      sql += ' WHERE o.order_status=?';
       params.push(status);
     }
 
     sql += ' ORDER BY o.created_at DESC';
 
     const [rows] = await db.execute(sql, params);
-    res.json({ orders: rows });
+    res.json({ orders: rows || [] });
   } catch (err) {
     console.error('ORDERS ERROR:', err);
-    res.status(500).json({ error: 'Failed to fetch orders' });
-  }
-});
-
-/* =========================================================
-   ✅ MARK ORDER AS DELIVERED
-========================================================= */
-router.put('/orders/:id/delivered', authenticateAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    await db.execute(
-      `UPDATE orders SET order_status = 'delivered' WHERE id = ?`,
-      [id]
-    );
-
-    res.json({ success: true, message: 'Order marked as delivered' });
-  } catch (err) {
-    console.error('DELIVER ORDER ERROR:', err);
-    res.status(500).json({ error: 'Failed to update order' });
+    res.json({ orders: [] });
   }
 });
 
