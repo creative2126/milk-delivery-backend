@@ -19,26 +19,29 @@ router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    const [rows] = await db.execute(
-      'SELECT * FROM users WHERE (username=? OR email=?) AND role="admin" LIMIT 1',
+    const [rows] = await db.query(
+      `SELECT * FROM users WHERE (email=? OR username=?) AND role='admin' LIMIT 1`,
       [username, username]
     );
 
-    const user = rows[0];
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!rows.length) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
-    const ok = await bcrypt.compare(password, user.password);
-    if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+    const admin = rows[0];
+    const ok = await bcrypt.compare(password, admin.password);
+    if (!ok) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
     const token = jwt.sign(
-      { id: user.id, role: user.role },
+      { id: admin.id, role: 'admin' },
       process.env.JWT_SECRET || 'mysecretkey',
       { expiresIn: '24h' }
     );
 
     res.json({ token });
   } catch (err) {
-    console.error('ADMIN LOGIN ERROR:', err);
     res.status(500).json({ error: 'Login failed' });
   }
 });
@@ -46,40 +49,35 @@ router.post('/login', async (req, res) => {
 /* ================= SUBSCRIPTION STATS ================= */
 router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const [rows] = await db.execute(`
-      SELECT
-        COUNT(*) AS totalSubscriptions,
-        SUM(subscription_status='active') AS activeSubscriptions,
-        IFNULL(SUM(subscription_amount),0) AS totalRevenue,
-        SUM(DATE(subscription_created_at)=CURDATE()) AS todaySubscriptions
-      FROM users
-      WHERE subscription_type IS NOT NULL
-    `);
+    const [[total]] = await db.query(
+      `SELECT COUNT(*) total FROM users WHERE subscription_type IS NOT NULL`
+    );
+    const [[active]] = await db.query(
+      `SELECT COUNT(*) active FROM users WHERE subscription_status='active'`
+    );
+    const [[revenue]] = await db.query(
+      `SELECT IFNULL(SUM(subscription_amount),0) revenue FROM users`
+    );
+    const [[today]] = await db.query(
+      `SELECT COUNT(*) today FROM users WHERE DATE(subscription_created_at)=CURDATE()`
+    );
 
-    res.json(rows[0] || {
-      totalSubscriptions: 0,
-      activeSubscriptions: 0,
-      totalRevenue: 0,
-      todaySubscriptions: 0
-    });
-  } catch (err) {
-    console.error('SUBSCRIPTION STATS ERROR:', err);
     res.json({
-      totalSubscriptions: 0,
-      activeSubscriptions: 0,
-      totalRevenue: 0,
-      todaySubscriptions: 0
+      totalSubscriptions: total.total,
+      activeSubscriptions: active.active,
+      totalRevenue: revenue.revenue,
+      todaySubscriptions: today.today
     });
+  } catch (e) {
+    res.status(500).json({ error: 'Stats failed' });
   }
 });
 
 /* ================= SUBSCRIPTIONS LIST ================= */
 router.get('/subscriptions', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { status } = req.query;
-
-    let sql = `
-      SELECT
+    const [rows] = await db.query(
+      `SELECT
         id,
         username,
         email,
@@ -95,45 +93,37 @@ router.get('/subscriptions', authenticateToken, requireAdmin, async (req, res) =
         subscription_end_date
       FROM users
       WHERE subscription_type IS NOT NULL
-    `;
+      ORDER BY subscription_created_at DESC`
+    );
 
-    const params = [];
-    if (status && status !== 'all') {
-      sql += ' AND subscription_status=?';
-      params.push(status);
-    }
-
-    sql += ' ORDER BY subscription_created_at DESC';
-
-    const [rows] = await db.execute(sql, params);
-    res.json({ subscriptions: rows || [] });
-  } catch (err) {
-    console.error('SUBSCRIPTIONS ERROR:', err);
-    res.json({ subscriptions: [] });
+    res.json({ subscriptions: rows });
+  } catch (e) {
+    res.status(500).json({ subscriptions: [] });
   }
 });
 
-/* ================= ORDER STATS ================= */
+/* ================= ORDER STATS (SINGLE ORDERS) ================= */
 router.get('/orders/stats', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const [rows] = await db.execute(`
-      SELECT
-        COUNT(*) AS totalOrders,
-        SUM(order_status='pending') AS pendingOrders,
-        SUM(order_status='delivered') AS completedOrders,
-        IFNULL(SUM(total_amount),0) AS totalRevenue
-      FROM orders
-    `);
+    const [[total]] = await db.query(`SELECT COUNT(*) total FROM orders`);
+    const [[pending]] = await db.query(
+      `SELECT COUNT(*) pending FROM orders WHERE order_status='paid'`
+    );
+    const [[delivered]] = await db.query(
+      `SELECT COUNT(*) delivered FROM orders WHERE order_status='delivered'`
+    );
+    const [[revenue]] = await db.query(
+      `SELECT IFNULL(SUM(total_amount),0) revenue FROM orders`
+    );
 
-    res.json(rows[0] || {
-      totalOrders: 0,
-      pendingOrders: 0,
-      completedOrders: 0,
-      totalRevenue: 0
-    });
-  } catch (err) {
-    console.error('ORDER STATS ERROR:', err);
     res.json({
+      totalOrders: total.total,
+      pendingOrders: pending.pending,
+      completedOrders: delivered.delivered,
+      totalRevenue: revenue.revenue
+    });
+  } catch (e) {
+    res.status(500).json({
       totalOrders: 0,
       pendingOrders: 0,
       completedOrders: 0,
@@ -142,41 +132,27 @@ router.get('/orders/stats', authenticateToken, requireAdmin, async (req, res) =>
   }
 });
 
-/* ================= ORDERS LIST ================= */
+/* ================= ORDER LIST ================= */
 router.get('/orders', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { status } = req.query;
+    const [rows] = await db.query(
+      `SELECT
+        id,
+        user_email AS email,
+        total_amount,
+        order_status AS status,
+        address,
+        latitude,
+        longitude,
+        delivery_date,
+        created_at
+      FROM orders
+      ORDER BY created_at DESC`
+    );
 
-    let sql = `
-      SELECT
-        o.id,
-        o.user_email AS email,
-        o.total_amount,
-        o.order_status AS status,
-        o.delivery_date,
-        o.address,
-        o.created_at,
-        u.username,
-        u.phone,
-        u.subscription_flat_number AS flat_number,
-        u.subscription_building_name AS building_name
-      FROM orders o
-      LEFT JOIN users u ON u.id = o.user_id
-    `;
-
-    const params = [];
-    if (status && status !== 'all') {
-      sql += ' WHERE o.order_status=?';
-      params.push(status);
-    }
-
-    sql += ' ORDER BY o.created_at DESC';
-
-    const [rows] = await db.execute(sql, params);
-    res.json({ orders: rows || [] });
-  } catch (err) {
-    console.error('ORDERS ERROR:', err);
-    res.json({ orders: [] });
+    res.json({ orders: rows });
+  } catch (e) {
+    res.status(500).json({ orders: [] });
   }
 });
 
