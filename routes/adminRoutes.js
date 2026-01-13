@@ -1,235 +1,189 @@
 const express = require('express');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const db = require('../db');
-const { authenticateToken } = require('../middleware/auth');
-const logger = require('../utils/logger');
-
 const router = express.Router();
+const db = require('../db');
+const jwt = require('jsonwebtoken');
 
-// Middleware to check admin role
-const requireAdmin = (req, res, next) => {
-  if (!req.user || req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
+const SECRET_KEY = process.env.JWT_SECRET || 'mysecretkey';
+
+/* ================= ADMIN AUTH MIDDLEWARE ================= */
+function authenticateAdmin(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ error: 'No token provided' });
   }
-  next();
-};
 
-// Admin login
-router.post('/login', async (req, res) => {
+  const token = authHeader.split(' ')[1];
+
   try {
-    console.log('Admin login attempt received');
-    console.log('Request body:', req.body);
-    
-    const { username, password } = req.body;
-
-    if (!username || !password) {
-      console.log('Missing username or password');
-      return res.status(400).json({ error: 'Username and password required' });
+    const decoded = jwt.verify(token, SECRET_KEY);
+    if (decoded.role !== 'admin') {
+      return res.status(403).json({ error: 'Access denied' });
     }
+    req.admin = decoded;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
 
-    // Find admin user
-    console.log('Looking up admin user:', username);
-    const result = await db.query(
-      'SELECT * FROM users WHERE (username = ? OR email = ?) AND role = ? LIMIT 1',
-      [username, username, 'admin']
-    );
-
-    console.log('Query result type:', Array.isArray(result) ? 'Array' : typeof result);
-
-    // Handle different db.query response formats
-    let user;
-    if (Array.isArray(result) && Array.isArray(result[0])) {
-      user = result[0][0];
-    } else if (Array.isArray(result)) {
-      user = result[0];
-    }
-
-    console.log('Parsed user:', user);
-
-    if (!user) {
-      console.log('Admin user not found:', username);
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    // Check password
-    console.log('Verifying password...');
-    const validPassword = await bcrypt.compare(password, user.password);
-    if (!validPassword) {
-      console.log('Invalid password for admin:', username);
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    console.log('Password verified, generating token...');
-
-    // Generate JWT token
-    const token = jwt.sign(
-      {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role
-      },
-      process.env.JWT_SECRET || 'mysecretkey',
-      { expiresIn: '24h' }
-    );
-
-    console.log('Admin login successful:', username);
+/* =========================================================
+   📊 SUBSCRIPTION STATS
+========================================================= */
+router.get('/stats', authenticateAdmin, async (req, res) => {
+  try {
+    const [[stats]] = await db.execute(`
+      SELECT
+        COUNT(*) AS totalSubscriptions,
+        SUM(CASE WHEN subscription_status = 'active' THEN 1 ELSE 0 END) AS activeSubscriptions,
+        SUM(subscription_total_amount) AS totalRevenue,
+        SUM(CASE WHEN DATE(subscription_created_at) = CURDATE() THEN 1 ELSE 0 END) AS todaySubscriptions
+      FROM users
+      WHERE subscription_status IS NOT NULL
+    `);
 
     res.json({
-      message: 'Admin login successful',
-      token: token,
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role
-      }
+      totalSubscriptions: stats.totalSubscriptions || 0,
+      activeSubscriptions: stats.activeSubscriptions || 0,
+      totalRevenue: stats.totalRevenue || 0,
+      todaySubscriptions: stats.todaySubscriptions || 0
     });
-  } catch (error) {
-    console.error('Admin login error:', error);
-    logger.error('Admin login error:', error);
-    res.status(500).json({ 
-      error: 'Internal server error',
-      message: error.message 
-    });
+  } catch (err) {
+    console.error('SUBSCRIPTION STATS ERROR:', err);
+    res.status(500).json({ error: 'Failed to load subscription stats' });
   }
 });
 
-// Check admin access
-router.get('/check', authenticateToken, requireAdmin, (req, res) => {
-  console.log('Admin access check passed');
-  res.json({
-    message: 'Admin access verified',
-    user: req.user
-  });
-});
-
-// Get all subscriptions for admin - FIXED to query users table
-router.get('/subscriptions', authenticateToken, requireAdmin, async (req, res) => {
+/* =========================================================
+   📦 ALL SUBSCRIPTIONS LIST
+========================================================= */
+router.get('/subscriptions', authenticateAdmin, async (req, res) => {
   try {
-    console.log('Fetching admin subscriptions');
-    const { status } = req.query;
+    const status = req.query.status;
 
-    // Query from users table where subscription data is actually stored
-    let query = `
+    let sql = `
       SELECT
         id,
         username,
-        name,
-        phone,
         email,
+        phone,
         subscription_type,
-        subscription_duration as duration,
-        subscription_amount as amount,
-        subscription_address as address,
-        subscription_building_name as building_name,
-        subscription_flat_number as flat_number,
-        subscription_status as status,
-        subscription_payment_id as payment_id,
-        subscription_created_at as created_at,
-        subscription_start_date,
-        subscription_end_date
+        subscription_duration AS duration,
+        subscription_amount AS amount,
+        subscription_status AS status,
+        subscription_start_date AS created_at,
+        subscription_end_date,
+        subscription_address AS address,
+        subscription_building_name AS building_name,
+        subscription_flat_number AS flat_number
       FROM users
-      WHERE subscription_type IS NOT NULL
+      WHERE subscription_status IS NOT NULL
     `;
 
     const params = [];
 
     if (status && status !== 'all') {
-      query += ' AND subscription_status = ?';
+      sql += ' AND subscription_status = ?';
       params.push(status);
     }
 
-    query += ' ORDER BY subscription_created_at DESC';
+    sql += ' ORDER BY subscription_created_at DESC';
 
-    console.log('Executing query:', query);
-    console.log('With params:', params);
-
-    const result = await db.query(query, params);
-    
-    // Handle different response formats
-    let subscriptions;
-    if (Array.isArray(result) && Array.isArray(result[0])) {
-      subscriptions = result[0];
-    } else if (Array.isArray(result)) {
-      subscriptions = result;
-    } else {
-      subscriptions = [];
-    }
-
-    console.log('Found subscriptions:', subscriptions.length);
-
-    res.json({
-      subscriptions: subscriptions,
-      total: subscriptions.length
-    });
-  } catch (error) {
-    console.error('Error fetching admin subscriptions:', error);
-    logger.error('Error fetching admin subscriptions:', error.stack || error);
-    res.status(500).json({ 
-      error: 'Failed to fetch subscriptions',
-      message: error.message 
-    });
+    const [rows] = await db.execute(sql, params);
+    res.json({ subscriptions: rows });
+  } catch (err) {
+    console.error('SUBSCRIPTIONS ERROR:', err);
+    res.status(500).json({ error: 'Failed to fetch subscriptions' });
   }
 });
 
-// Get subscription statistics - FIXED to query users table
-router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
+/* =========================================================
+   🛒 SINGLE ORDERS STATS (FIXES 404)
+========================================================= */
+router.get('/orders/stats', authenticateAdmin, async (req, res) => {
   try {
-    console.log('Fetching admin statistics');
-    
-    // Query from users table where subscription data is stored
-    const totalResult = await db.query(
-      'SELECT COUNT(*) as total FROM users WHERE subscription_type IS NOT NULL'
-    );
-    const activeResult = await db.query(
-      'SELECT COUNT(*) as active FROM users WHERE subscription_status = "active"'
-    );
-    const revenueResult = await db.query(
-      'SELECT SUM(subscription_amount) as revenue FROM users WHERE subscription_status = "active"'
-    );
-    const todayResult = await db.query(`
-      SELECT COUNT(*) as today FROM users
-      WHERE DATE(subscription_created_at) = CURDATE()
+    const [[stats]] = await db.execute(`
+      SELECT
+        COUNT(*) AS totalOrders,
+        SUM(CASE WHEN order_status = 'pending' THEN 1 ELSE 0 END) AS pendingOrders,
+        SUM(CASE WHEN order_status = 'delivered' THEN 1 ELSE 0 END) AS completedOrders,
+        SUM(total_amount) AS totalRevenue
+      FROM orders
     `);
 
-    // Parse results handling different formats
-    const parseResult = (result, field) => {
-      let row;
-      if (Array.isArray(result) && Array.isArray(result[0])) {
-        row = result[0][0];
-      } else if (Array.isArray(result)) {
-        row = result[0];
-      }
-      return row ? (row[field] || 0) : 0;
-    };
-
-    const totalSubscriptions = parseInt(parseResult(totalResult, 'total')) || 0;
-    const activeSubscriptions = parseInt(parseResult(activeResult, 'active')) || 0;
-    const totalRevenue = parseFloat(parseResult(revenueResult, 'revenue')) || 0;
-    const todaySubscriptions = parseInt(parseResult(todayResult, 'today')) || 0;
-
-    console.log('Statistics:', { 
-      totalSubscriptions, 
-      activeSubscriptions, 
-      totalRevenue, 
-      todaySubscriptions 
-    });
-
     res.json({
-      totalSubscriptions: totalSubscriptions,
-      activeSubscriptions: activeSubscriptions,
-      totalRevenue: totalRevenue,
-      todaySubscriptions: todaySubscriptions
+      totalOrders: stats.totalOrders || 0,
+      pendingOrders: stats.pendingOrders || 0,
+      completedOrders: stats.completedOrders || 0,
+      totalRevenue: stats.totalRevenue || 0
     });
-  } catch (error) {
-    console.error('Error fetching admin stats:', error);
-    logger.error('Error fetching admin stats:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch statistics',
-      message: error.message 
-    });
+  } catch (err) {
+    console.error('ORDER STATS ERROR:', err);
+    res.status(500).json({ error: 'Failed to load order stats' });
+  }
+});
+
+/* =========================================================
+   🛒 ALL SINGLE ORDERS LIST (FIXES 404)
+========================================================= */
+router.get('/orders', authenticateAdmin, async (req, res) => {
+  try {
+    const status = req.query.status;
+
+    let sql = `
+      SELECT
+        o.id,
+        o.user_id,
+        o.user_email AS email,
+        o.total_amount,
+        o.order_status AS status,
+        o.delivery_date,
+        o.delivery_slot,
+        o.address,
+        o.latitude,
+        o.longitude,
+        o.payment_id,
+        o.created_at,
+        u.name AS username,
+        u.phone,
+        u.subscription_flat_number AS flat_number,
+        u.subscription_building_name AS building_name
+      FROM orders o
+      LEFT JOIN users u ON u.id = o.user_id
+    `;
+
+    const params = [];
+
+    if (status && status !== 'all') {
+      sql += ' WHERE o.order_status = ?';
+      params.push(status);
+    }
+
+    sql += ' ORDER BY o.created_at DESC';
+
+    const [rows] = await db.execute(sql, params);
+    res.json({ orders: rows });
+  } catch (err) {
+    console.error('ORDERS ERROR:', err);
+    res.status(500).json({ error: 'Failed to fetch orders' });
+  }
+});
+
+/* =========================================================
+   ✅ MARK ORDER AS DELIVERED
+========================================================= */
+router.put('/orders/:id/delivered', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await db.execute(
+      `UPDATE orders SET order_status = 'delivered' WHERE id = ?`,
+      [id]
+    );
+
+    res.json({ success: true, message: 'Order marked as delivered' });
+  } catch (err) {
+    console.error('DELIVER ORDER ERROR:', err);
+    res.status(500).json({ error: 'Failed to update order' });
   }
 });
 
