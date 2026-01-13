@@ -312,19 +312,31 @@ router.patch('/orders/:id/status', authenticateToken, requireAdmin, async (req, 
     const { id } = req.params;
     const { status } = req.body;
 
+    console.log(`📝 Updating order ${id} to status: ${status}`);
+
     let dbStatus = status;
     if (status === 'pending') dbStatus = 'paid';
     if (status === 'completed') dbStatus = 'delivered';
+    if (status === 'delivered') dbStatus = 'delivered';
 
     await db.query(
       `UPDATE orders SET order_status=? WHERE id=?`,
       [dbStatus, id]
     );
 
-    res.json({ message: 'Order status updated' });
+    console.log(`✅ Order ${id} updated to ${dbStatus}`);
+    res.json({ 
+      success: true,
+      message: 'Order status updated successfully',
+      orderId: id,
+      newStatus: dbStatus
+    });
   } catch (e) {
-    console.error('Update order error:', e);
-    res.status(500).json({ error: 'Failed to update order' });
+    console.error('❌ Update order error:', e);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to update order' 
+    });
   }
 });
 
