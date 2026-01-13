@@ -264,6 +264,16 @@ router.post('/verify-payment', async (req, res) => {
       console.log('Flat:', flat_number || 'Not provided');
       console.log('Landmark:', landmark || 'Not provided');
       console.log('Coordinates:', latitude && longitude ? `${latitude}, ${longitude}` : 'Not provided');
+      
+      // ✅ FIX: Properly handle latitude/longitude
+      const lat = latitude && !isNaN(parseFloat(latitude)) ? parseFloat(latitude) : null;
+      const lng = longitude && !isNaN(parseFloat(longitude)) ? parseFloat(longitude) : null;
+      
+      console.log('📍 Parsed Coordinates:');
+      console.log('  - Latitude (parsed):', lat);
+      console.log('  - Longitude (parsed):', lng);
+      console.log('  - Latitude type:', typeof lat);
+      console.log('  - Longitude type:', typeof lng);
 
       try {
         // ✅ FIX: Use extracted userId instead of user.id
@@ -287,12 +297,12 @@ router.post('/verify-payment', async (req, res) => {
             DATE_ADD(CURDATE(), INTERVAL 1 DAY),
             'morning', ?, ?, ?, ?)`,
           [
-            userId,  // ✅ FIXED: Use extracted userId
+            userId,
             user.email || user.EMAIL,
             payment.amount / 100,
             address || '',
-            latitude || null,
-            longitude || null,
+            lat,  // ✅ FIXED: Use parsed latitude
+            lng,  // ✅ FIXED: Use parsed longitude
             razorpay_payment_id
           ]
         );
