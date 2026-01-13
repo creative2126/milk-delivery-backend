@@ -57,10 +57,12 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
       `SELECT COUNT(*) active FROM users WHERE subscription_status='active'`
     );
     const [[revenue]] = await db.query(
-      `SELECT IFNULL(SUM(subscription_amount),0) revenue FROM users WHERE subscription_amount IS NOT NULL`
+      `SELECT IFNULL(SUM(subscription_amount),0) revenue FROM users`
     );
     const [[today]] = await db.query(
-      `SELECT COUNT(*) today FROM users WHERE DATE(subscription_created_at)=CURDATE() AND subscription_type IS NOT NULL`
+      `SELECT COUNT(*) today FROM users 
+       WHERE DATE(subscription_created_at)=CURDATE()
+       AND subscription_type IS NOT NULL`
     );
 
     res.json({
@@ -71,7 +73,7 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
     });
   } catch (e) {
     console.error('Stats error:', e);
-    res.status(500).json({ 
+    res.status(500).json({
       totalSubscriptions: 0,
       activeSubscriptions: 0,
       totalRevenue: 0,
@@ -84,7 +86,7 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
 router.get('/subscriptions', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { status } = req.query;
-    
+
     let query = `
       SELECT
         id,
@@ -103,43 +105,35 @@ router.get('/subscriptions', authenticateToken, requireAdmin, async (req, res) =
       FROM users
       WHERE subscription_type IS NOT NULL
     `;
-    
+
     const params = [];
-    
-    // Add status filter if provided
     if (status && status !== 'all') {
       query += ` AND subscription_status = ?`;
       params.push(status);
     }
-    
+
     query += ` ORDER BY subscription_created_at DESC`;
 
     const [rows] = await db.query(query, params);
-
-    res.json({ subscriptions: rows });
+    res.json({ subscriptions: rows || [] });
   } catch (e) {
     console.error('Subscriptions list error:', e);
     res.status(500).json({ subscriptions: [] });
   }
 });
 
-/* ================= ORDER STATS (SINGLE ORDERS) ================= */
+/* ================= SINGLE ORDER STATS ================= */
 router.get('/orders/stats', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    // Total orders
-    const [[total]] = await db.query(`SELECT COUNT(*) total FROM orders`);
-    
-    // Pending orders (paid or pending status)
+    const [[total]] = await db.query(
+      `SELECT COUNT(*) total FROM orders`
+    );
     const [[pending]] = await db.query(
-      `SELECT COUNT(*) pending FROM orders WHERE order_status IN ('paid', 'pending')`
+      `SELECT COUNT(*) pending FROM orders WHERE order_status='paid'`
     );
-    
-    // Completed/Delivered orders
     const [[completed]] = await db.query(
-      `SELECT COUNT(*) completed FROM orders WHERE order_status = 'delivered'`
+      `SELECT COUNT(*) completed FROM orders WHERE order_status='delivered'`
     );
-    
-    // Total revenue
     const [[revenue]] = await db.query(
       `SELECT IFNULL(SUM(total_amount),0) revenue FROM orders`
     );
@@ -161,12 +155,11 @@ router.get('/orders/stats', authenticateToken, requireAdmin, async (req, res) =>
   }
 });
 
-/* ================= ORDER LIST ================= */
+/* ================= SINGLE ORDERS LIST ================= */
 router.get('/orders', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { status } = req.query;
-    
-    // Query orders with user information
+
     let query = `
       SELECT
         o.id,
@@ -184,80 +177,50 @@ router.get('/orders', authenticateToken, requireAdmin, async (req, res) => {
         o.created_at,
         u.username,
         u.phone,
-        u.flat_number,
-        u.building_name
+        u.subscription_flat_number AS flat_number,
+        u.subscription_building_name AS building_name
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
       WHERE 1=1
     `;
-    
-    const params = [];
-    
-    // Add status filter if provided
+
     if (status && status !== 'all') {
-      // Map frontend status to database status
-      if (status === 'pending') {
-        query += ` AND o.order_status IN ('paid', 'pending')`;
-      } else if (status === 'completed') {
-        query += ` AND o.order_status = 'delivered'`;
-      } else if (status === 'cancelled') {
-        query += ` AND o.order_status = 'cancelled'`;
-      } else {
-        query += ` AND o.order_status = ?`;
-        params.push(status);
-      }
+      if (status === 'pending') query += ` AND o.order_status='paid'`;
+      else if (status === 'completed') query += ` AND o.order_status='delivered'`;
+      else if (status === 'cancelled') query += ` AND o.order_status='cancelled'`;
     }
-    
+
     query += ` ORDER BY o.created_at DESC`;
 
-    const [rows] = await db.query(query, params);
-    
-    // Transform data to match frontend expectations
-    const transformedOrders = rows.map(order => {
-      // Map database status to frontend status
-      let frontendStatus = order.order_status;
-      if (order.order_status === 'paid') {
-        frontendStatus = 'pending';
-      } else if (order.order_status === 'delivered') {
-        frontendStatus = 'completed';
-      }
-      
-      // Format address with lat/lng if available
-      let formattedAddress = order.address || '';
-      if (order.latitude && order.longitude) {
-        formattedAddress += `, Lat: ${order.latitude}, Lng: ${order.longitude}`;
-      }
-      
-      // Determine product name based on order type or use a default
-      let productName = 'Fresh Milk';
-      if (order.order_type === 'single') {
-        productName = 'Single Order - Fresh Milk';
-      }
-      
-      return {
-        id: order.id,
-        user_id: order.user_id,
-        username: order.username || 'N/A',
-        email: order.user_email || 'N/A',
-        phone: order.phone || 'N/A',
-        flat_number: order.flat_number || 'N/A',
-        building_name: order.building_name || 'N/A',
-        product_name: productName,
-        product_type: order.order_type || 'single',
-        quantity: 1, // Single orders are typically 1 unit
-        amount: order.total_amount || 0,
-        total_amount: order.total_amount || 0,
-        status: frontendStatus,
-        order_date: order.created_at,
-        delivery_date: order.delivery_date,
-        delivery_slot: order.delivery_slot,
-        address: formattedAddress,
-        payment_id: order.payment_id,
-        created_at: order.created_at
-      };
-    });
+    const [rows] = await db.query(query);
 
-    res.json({ orders: transformedOrders });
+    const orders = (rows || []).map(o => ({
+      id: o.id,
+      user_id: o.user_id,
+      username: o.username || 'N/A',
+      email: o.user_email,
+      phone: o.phone || 'N/A',
+      flat_number: o.flat_number || 'N/A',
+      building_name: o.building_name || 'N/A',
+      product_name: 'Fresh Milk',
+      product_type: 'single',
+      quantity: 1,
+      amount: o.total_amount,
+      total_amount: o.total_amount,
+      status: o.order_status === 'paid' ? 'pending'
+            : o.order_status === 'delivered' ? 'completed'
+            : o.order_status,
+      order_date: o.created_at,
+      delivery_date: o.delivery_date,
+      delivery_slot: o.delivery_slot,
+      address: o.latitude && o.longitude
+        ? `${o.address}, Lat: ${o.latitude}, Lng: ${o.longitude}`
+        : o.address,
+      payment_id: o.payment_id,
+      created_at: o.created_at
+    }));
+
+    res.json({ orders });
   } catch (e) {
     console.error('Orders list error:', e);
     res.status(500).json({ orders: [] });
@@ -269,98 +232,20 @@ router.patch('/orders/:id/status', authenticateToken, requireAdmin, async (req, 
   try {
     const { id } = req.params;
     const { status } = req.body;
-    
-    // Validate status
-    const validStatuses = ['pending', 'completed', 'cancelled'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ error: 'Invalid status value' });
-    }
-    
-    // Map frontend status to database status
+
     let dbStatus = status;
-    if (status === 'pending') {
-      dbStatus = 'paid'; // or 'pending' based on your preference
-    } else if (status === 'completed') {
-      dbStatus = 'delivered';
-    }
-    
-    const [result] = await db.query(
-      'UPDATE orders SET order_status = ? WHERE id = ?',
+    if (status === 'pending') dbStatus = 'paid';
+    if (status === 'completed') dbStatus = 'delivered';
+
+    await db.query(
+      `UPDATE orders SET order_status=? WHERE id=?`,
       [dbStatus, id]
     );
-    
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
-    
-    res.json({ 
-      message: 'Order status updated successfully',
-      status: status
-    });
-  } catch (e) {
-    console.error('Update order status error:', e);
-    res.status(500).json({ error: 'Failed to update order status' });
-  }
-});
 
-/* ================= GET SINGLE ORDER ================= */
-router.get('/orders/:id', authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const [rows] = await db.query(
-      `SELECT
-        o.*,
-        u.username,
-        u.phone,
-        u.flat_number,
-        u.building_name
-      FROM orders o
-      LEFT JOIN users u ON o.user_id = u.id
-      WHERE o.id = ?`,
-      [id]
-    );
-    
-    if (!rows.length) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
-    
-    const order = rows[0];
-    
-    // Map status for frontend
-    if (order.order_status === 'paid') {
-      order.order_status = 'pending';
-    } else if (order.order_status === 'delivered') {
-      order.order_status = 'completed';
-    }
-    
-    res.json({ order: order });
+    res.json({ message: 'Order status updated' });
   } catch (e) {
-    console.error('Get order error:', e);
-    res.status(500).json({ error: 'Failed to fetch order' });
-  }
-});
-
-/* ================= DELETE ORDER (USE WITH CAUTION) ================= */
-router.delete('/orders/:id', authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const [result] = await db.query(
-      'DELETE FROM orders WHERE id = ?',
-      [id]
-    );
-    
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
-    
-    res.json({ 
-      message: 'Order deleted successfully'
-    });
-  } catch (e) {
-    console.error('Delete order error:', e);
-    res.status(500).json({ error: 'Failed to delete order' });
+    console.error('Update order error:', e);
+    res.status(500).json({ error: 'Failed to update order' });
   }
 });
 
