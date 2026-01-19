@@ -191,22 +191,21 @@ app.get('/health', async (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date() });
 });
 
-// -------------------- Static Files --------------------
-app.use(express.static(path.join(__dirname, '../frontend/public'), { maxAge: '1d' }));
+// -------------------- 404 Handler --------------------
+app.use('/api/*', (req, res) => {
+  res.status(404).json({ error: 'API route not found' });
+});
 
-// -------------------- Frontend Routes --------------------
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, '../frontend/public/index.html')));
-app.get('/login', (req, res) => res.sendFile(path.join(__dirname, '../frontend/public/login.html')));
-app.get('/register', (req, res) => res.sendFile(path.join(__dirname, '../frontend/public/register.html')));
-app.get('/profile', (req, res) => res.sendFile(path.join(__dirname, '../frontend/public/profile.html')));
-app.get('/admin-login', (req, res) => res.sendFile(path.join(__dirname, '../frontend/public/admin-login.html')));
-app.get('/admin-fixed', (req, res) => res.sendFile(path.join(__dirname, '../frontend/public/admin-fixed.html')));
+// Catch-all for non-API routes
+app.use('*', (req, res) => {
+  res.status(404).json({ 
+    error: 'Not found',
+    message: 'This is an API server. Frontend is hosted separately at https://freshndorganic.com'
+  });
+});
 
-// -------------------- 404 --------------------
-app.use('/api/*', (req, res) => res.status(404).json({ error: 'API route not found' }));
-app.use('*', (req, res) =>
-  res.sendFile(path.join(__dirname, '../frontend/public/home.html'))
-);
+// -------------------- Error Handler --------------------
+app.use(errorHandler);
 
 // -------------------- Start Server --------------------
 async function startServer() {
