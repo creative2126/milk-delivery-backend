@@ -1,4 +1,4 @@
-// server.js - Milk Delivery App (COMPLETE FIXED VERSION)
+// server.js - Milk Delivery App (COMPLETE FIXED VERSION - API ONLY)
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -240,15 +240,16 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// ==================== STATIC FILES & FRONTEND ====================
-app.use(express.static(path.join(__dirname, '../frontend/public'), { 
-  maxAge: '1d',
-  etag: true,
-  lastModified: true
-}));
-
+// ==================== ROOT ENDPOINT (for health checks) ====================
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public/index.html'));
+  res.json({
+    success: true,
+    message: 'Milk Delivery API Server',
+    version: '2.0.0',
+    status: 'running',
+    frontend: 'https://freshndorganic.com',
+    documentation: '/health for health check'
+  });
 });
 
 // ==================== 404 HANDLER FOR API ROUTES ====================
@@ -259,6 +260,16 @@ app.use('/api/*', (req, res) => {
     error: 'API route not found', 
     path: req.path,
     method: req.method
+  });
+});
+
+// ==================== CATCH-ALL 404 FOR NON-API ROUTES ====================
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: 'Not found',
+    message: 'This is an API server. Frontend is hosted at https://freshndorganic.com',
+    path: req.path
   });
 });
 
@@ -285,7 +296,8 @@ async function startServer() {
       console.log('\n┌─────────────────────────────────────────────┐');
       console.log(`│  🚀 Server running on port ${PORT}          │`);
       console.log(`│  📍 Environment: ${process.env.NODE_ENV || 'development'}              │`);
-      console.log(`│  🌐 URL: http://localhost:${PORT}            │`);
+      console.log(`│  🌐 API URL: http://localhost:${PORT}        │`);
+      console.log(`│  🎨 Frontend: https://freshndorganic.com    │`);
       console.log('└─────────────────────────────────────────────┘\n');
       logger.info(`Server started on port ${PORT}`);
     });
